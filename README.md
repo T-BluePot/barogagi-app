@@ -116,5 +116,5 @@ npx react-native run-android
 
 | 레포 | 설명 |
 |------|------|
-| [barogagi-front](https://github.com/T-BluePot/barogagi-front) | WebView에 로드되는 웹 프로젝트 (Vue.js) |
+| [barogagi-front](https://github.com/T-BluePot/barogagi-front) | WebView에 로드되는 웹 프로젝트 (React) |
 | [barogagi-app](https://github.com/T-BluePot/barogagi-app) | 이 레포 - React Native 앱 래퍼 |
