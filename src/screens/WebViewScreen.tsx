@@ -29,6 +29,9 @@ const WebViewScreen = () => {
 
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  // SPA 페이지 이동 시 onLoadStart가 반복 트리거되는 문제 방지
+  // 최초 1회만 로딩 스피너를 표시하기 위한 플래그
+  const [initialLoaded, setInitialLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   // 스토리지에서 읽은 초기 데이터 — null이면 아직 로딩 중
   const [initData, setInitData] = useState<InitData | null>(null);
@@ -245,8 +248,15 @@ const WebViewScreen = () => {
         // 웹 → 네이티브 메시지 수신
         onMessage={handleMessage}
         // 로딩 상태
-        onLoadStart={() => setIsLoading(true)}
-        onLoadEnd={() => setIsLoading(false)}
+        onLoadStart={() => {
+          if (!initialLoaded) {
+            setIsLoading(true);
+          }
+        }}
+        onLoadEnd={() => {
+          setIsLoading(false);
+          setInitialLoaded(true);
+        }}
         // 에러 핸들링
         onError={() => setHasError(true)}
       />
