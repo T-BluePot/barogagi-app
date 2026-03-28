@@ -41,7 +41,11 @@ import ErrorFallback from '../components/ErrorFallback';
 import {WEB_APP_URL, APP_NAME} from '../constants/config';
 import {BRIDGE_TYPES} from '../constants/bridgeTypes';
 import {StorageService} from '../services/StorageService';
-import {buildCookieInjectionJS} from '../utils/cookieInjector';
+import {
+  buildCookieInjectionJS,
+  buildSafeAreaCookieJS,
+  buildStorageCookieJS,
+} from '../utils/cookieInjector';
 import {BRIDGE_INTERFACE_JS} from '../utils/bridgeInterface';
 
 /** 앱 시작 시 AsyncStorage에서 로드하는 초기 데이터 타입 */
@@ -101,6 +105,19 @@ const WebViewScreen = () => {
     };
     loadInitData();
   }, []);
+
+  /**
+   * safe area 인셋 변경 시 여백 쿠키를 런타임으로 갱신합니다.
+   * 화면 회전이나 키보드 노출 등으로 insets가 달라질 때 웹앱에 최신 값을 전달합니다.
+   * initialLoaded가 true인 시점 이후에만 injectJavaScript를 호출합니다.
+   */
+  useEffect(() => {
+    if (!initialLoaded) {
+      return;
+    }
+    const safeAreaJS = buildSafeAreaCookieJS(insets.top, insets.bottom);
+    webViewRef.current?.injectJavaScript(safeAreaJS + '\ntrue;');
+  }, [insets.top, insets.bottom, initialLoaded]);
 
   /**
    * Android 하드웨어 뒤로가기 버튼 처리.
@@ -173,6 +190,15 @@ const WebViewScreen = () => {
         case BRIDGE_TYPES.LOGIN: {
           const {provider_id, email, name} = message.data;
           await StorageService.saveLoginInfo(provider_id, email, name);
+          // 로그인 완료 후 스토리지 쿠키를 즉시 갱신해 웹앱이 새 사용자 정보를 바로 참조할 수 있게 합니다.
+          const autoLogin = await StorageService.getAutoLogin();
+          const loginCookieJS = buildStorageCookieJS({
+            providerId: provider_id,
+            email,
+            name,
+            autoLogin,
+          });
+          webViewRef.current?.injectJavaScript(loginCookieJS + '\ntrue;');
           break;
         }
 
@@ -184,6 +210,14 @@ const WebViewScreen = () => {
          */
         case BRIDGE_TYPES.LOGOUT: {
           await StorageService.clearLoginInfo();
+          // 로그아웃 시 사용자 정보 쿠키를 빈 값으로 초기화합니다.
+          const logoutCookieJS = buildStorageCookieJS({
+            providerId: '',
+            email: '',
+            name: '',
+            autoLogin: false,
+          });
+          webViewRef.current?.injectJavaScript(logoutCookieJS + '\ntrue;');
           break;
         }
 
