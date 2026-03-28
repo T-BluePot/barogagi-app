@@ -81,6 +81,26 @@ export const BRIDGE_TYPES = {
   UNSUBSCRIBE_TOPIC: 'UNSUBSCRIBE_TOPIC',
 
   // ─────────────────────────────────────────
+  // 앱 설정 (Settings)
+  // ─────────────────────────────────────────
+
+  /**
+   * 앱 테마를 변경합니다. 변경된 값은 네이티브 스토리지에 저장되며,
+   * 다음 앱 실행 시 쿠키(app_theme)로 웹에 전달됩니다.
+   *
+   * payload: { theme: 'light' | 'dark' | 'system' }
+   */
+  SET_THEME: 'SET_THEME',
+
+  /**
+   * 푸시 알림 수신 설정을 변경합니다. 변경된 값은 네이티브 스토리지에 저장되며,
+   * 다음 앱 실행 시 쿠키(notification_enabled)로 웹에 전달됩니다.
+   *
+   * payload: { enabled: boolean }
+   */
+  SET_NOTIFICATION: 'SET_NOTIFICATION',
+
+  // ─────────────────────────────────────────
   // 앱 스토리지 (AsyncStorage)
   // ─────────────────────────────────────────
 

@@ -2,20 +2,15 @@
  * @file cookieInjector.ts
  * @description 앱 정보를 쿠키로 변환해 WebView에 주입하는 JS 코드를 생성합니다.
  *
- * ## 왜 쿠키를 사용하나요?
- * React Native WebView와 웹앱(barogagi-front)은 서로 다른 실행 환경입니다.
- * 앱이 알고 있는 정보(safe area 크기, 로그인 정보, 다크모드 여부 등)를
- * 웹앱이 초기 렌더링 시점부터 알 수 있도록 쿠키를 활용합니다.
- *
  * ## 함수 구성
- * - buildSafeAreaCookieJS  : safe area 인셋만 쿠키로 주입 (여백 전용)
- * - buildStorageCookieJS   : 스토리지 기반 사용자/앱 정보를 쿠키로 주입
- * - buildCookieInjectionJS : 위 두 함수를 조합한 초기 전체 주입용 (WebView 최초 로딩 시)
+ * - buildSafeAreaCookieJS  : safe area 인셋 전용
+ * - buildStorageCookieJS   : 사용자 인증 + 앱 설정(테마, 알림, FCM) 전용
+ * - buildCookieInjectionJS : 위 두 함수를 조합한 초기 전체 주입용
  *
  * ## 런타임 갱신 패턴
- * 초기 로딩 이후 값이 변경될 때 개별 함수로 특정 쿠키만 갱신할 수 있습니다.
- * - 로그인/로그아웃 후  : buildStorageCookieJS → injectJavaScript
- * - 화면 회전 등        : buildSafeAreaCookieJS → injectJavaScript
+ * 개별 함수로 특정 쿠키만 갱신할 수 있습니다.
+ * - 로그인/로그아웃/테마 변경/알림 설정 : buildStorageCookieJS → injectJavaScript
+ * - 화면 회전 등                        : buildSafeAreaCookieJS → injectJavaScript
  *
  * ## 웹앱에서 쿠키 읽는 방법 (barogagi-front 참고용)
  * ```javascript
@@ -23,28 +18,28 @@
  *   const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
  *   return match ? decodeURIComponent(match[2]) : null;
  * }
- *
- * const safeAreaBottom = parseInt(getCookie('safe_area_bottom') ?? '0', 10);
- * const isAutoLogin    = getCookie('auto_login') === 'true';
- * const isDarkMode     = getCookie('app_darkMode') === 'true';
  * ```
  *
  * ## 주입되는 쿠키 목록
- * | Key             | 함수                  | 설명                              | 예시 값       |
- * |-----------------|-----------------------|-----------------------------------|---------------|
- * | safe_area_top   | buildSafeAreaCookieJS | 상단 safe area 높이 (px)          | '59'          |
- * | safe_area_bottom| buildSafeAreaCookieJS | 하단 safe area 높이 (px)          | '34'          |
- * | provider_id     | buildStorageCookieJS  | 로그인 사용자 고유 ID             | 'kakao_12345' |
- * | email           | buildStorageCookieJS  | 로그인 사용자 이메일              | 'a@b.com'     |
- * | name            | buildStorageCookieJS  | 로그인 사용자 이름                | '홍길동'      |
- * | auto_login      | buildStorageCookieJS  | 자동 로그인 여부                  | 'true'        |
- * | app_version     | buildStorageCookieJS  | 앱 버전                           | '1.0.0'       |
- * | app_darkMode    | buildStorageCookieJS  | 시스템 다크모드 여부              | 'false'       |
- * | app_platform    | buildStorageCookieJS  | 플랫폼                            | 'ios'         |
+ * | Key                  | 함수                  | 설명                      | 예시 값       |
+ * |----------------------|-----------------------|---------------------------|---------------|
+ * | safe_area_top        | buildSafeAreaCookieJS | 상단 safe area (px)       | '59'          |
+ * | safe_area_bottom     | buildSafeAreaCookieJS | 하단 safe area (px)       | '34'          |
+ * | provider_id          | buildStorageCookieJS  | 사용자 고유 ID            | 'kakao_12345' |
+ * | email                | buildStorageCookieJS  | 사용자 이메일             | 'a@b.com'     |
+ * | name                 | buildStorageCookieJS  | 사용자 이름               | '홍길동'      |
+ * | auto_login           | buildStorageCookieJS  | 자동 로그인 여부          | 'true'        |
+ * | app_theme            | buildStorageCookieJS  | 사용자 테마 설정          | 'dark'        |
+ * | app_darkMode         | buildStorageCookieJS  | 시스템 다크모드 여부      | 'false'       |
+ * | fcm_token            | buildStorageCookieJS  | FCM 푸시 토큰             | 'abc...'      |
+ * | notification_enabled | buildStorageCookieJS  | 알림 수신 설정            | 'true'        |
+ * | app_version          | buildStorageCookieJS  | 앱 버전                   | '1.0.0'       |
+ * | app_platform         | buildStorageCookieJS  | 플랫폼                    | 'ios'         |
  */
 
 import {Appearance, Platform} from 'react-native';
 import {APP_VERSION} from '../constants/config';
+import type {AppTheme} from '../services/StorageService';
 
 // ─────────────────────────────────────────
 // 타입 정의
@@ -60,6 +55,12 @@ export interface StorageCookieData {
   name: string;
   /** 자동 로그인 활성화 여부 */
   autoLogin: boolean;
+  /** 사용자 테마 설정. 'light' | 'dark' | 'system' */
+  appTheme: AppTheme;
+  /** FCM 푸시 토큰. 미발급 시 빈 문자열. */
+  fcmToken: string;
+  /** 알림 수신 허용 여부 */
+  notificationEnabled: boolean;
 }
 
 /** buildCookieInjectionJS에 전달하는 전체 데이터 타입 (safe area + 스토리지 조합) */
@@ -89,13 +90,8 @@ const setCookie = (key: string, value: string): string =>
 /**
  * Safe area 인셋 값만 쿠키로 주입하는 JS 코드를 생성합니다.
  *
- * ### 사용 시점
- * - WebView 최초 로딩: buildCookieInjectionJS 내부에서 호출됨
- * - 런타임 갱신: 화면 회전 등으로 insets가 변경될 때 injectJavaScript로 재주입
- *
  * @param top    - 상단 safe area 높이 (px)
  * @param bottom - 하단 safe area 높이 (px)
- * @returns WebView에 주입할 JS 코드 문자열
  */
 export const buildSafeAreaCookieJS = (top: number, bottom: number): string => `
 (function() {
@@ -104,18 +100,12 @@ export const buildSafeAreaCookieJS = (top: number, bottom: number): string => `
 })();`;
 
 /**
- * AsyncStorage 기반 사용자/앱 정보를 쿠키로 주입하는 JS 코드를 생성합니다.
+ * AsyncStorage 기반 사용자/앱 설정 정보를 쿠키로 주입하는 JS 코드를 생성합니다.
+ * 로그인/로그아웃, 테마 변경, 알림 설정 변경 후 런타임 갱신에도 사용됩니다.
  *
- * ### 사용 시점
- * - WebView 최초 로딩: buildCookieInjectionJS 내부에서 호출됨
- * - 런타임 갱신: 로그인/로그아웃 완료 후 injectJavaScript로 재주입
- *
- * @param data - 쿠키로 주입할 스토리지 기반 데이터 ({@link StorageCookieData} 참고)
- * @returns WebView에 주입할 JS 코드 문자열
+ * @param data - 쿠키로 주입할 스토리지 기반 데이터
  */
 export const buildStorageCookieJS = (data: StorageCookieData): string => {
-  // Appearance.getColorScheme()은 현재 기기의 다크모드 설정을 반환합니다.
-  // 'dark' | 'light' | null (null은 기기가 설정을 지원하지 않는 경우)
   const darkMode = Appearance.getColorScheme() === 'dark';
 
   return `
@@ -124,28 +114,22 @@ export const buildStorageCookieJS = (data: StorageCookieData): string => {
   ${setCookie('email', data.email)}
   ${setCookie('name', data.name)}
   ${setCookie('auto_login', String(data.autoLogin))}
-  ${setCookie('app_version', APP_VERSION)}
+  ${setCookie('app_theme', data.appTheme)}
   ${setCookie('app_darkMode', String(darkMode))}
+  ${setCookie('fcm_token', data.fcmToken)}
+  ${setCookie('notification_enabled', String(data.notificationEnabled))}
+  ${setCookie('app_version', APP_VERSION)}
   ${setCookie('app_platform', Platform.OS)}
 })();`;
 };
 
 /**
  * WebView 초기 로딩 전 주입할 전체 쿠키 JS를 생성합니다.
- * buildSafeAreaCookieJS와 buildStorageCookieJS를 조합합니다.
+ * buildSafeAreaCookieJS + buildStorageCookieJS를 조합합니다.
  *
- * WebViewScreen의 useMemo에서 initData, insets가 준비된 후 호출됩니다.
- * 이 함수가 반환한 JS는 WebView가 페이지를 파싱하기 전에 실행됩니다.
- *
- * @param data - 쿠키로 주입할 전체 데이터 ({@link CookieInjectionData} 참고)
- * @returns WebView에 주입할 JS 코드 문자열
+ * @param data - 쿠키로 주입할 전체 데이터
  */
 export const buildCookieInjectionJS = (data: CookieInjectionData): string =>
   buildSafeAreaCookieJS(data.safeAreaTop, data.safeAreaBottom) +
   '\n' +
-  buildStorageCookieJS({
-    providerId: data.providerId,
-    email: data.email,
-    name: data.name,
-    autoLogin: data.autoLogin,
-  });
+  buildStorageCookieJS(data);
