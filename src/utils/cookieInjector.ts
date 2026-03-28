@@ -25,9 +25,7 @@
  * |----------------------|-----------------------|---------------------------|---------------|
  * | safe_area_top        | buildSafeAreaCookieJS | 상단 safe area (px)       | '59'          |
  * | safe_area_bottom     | buildSafeAreaCookieJS | 하단 safe area (px)       | '34'          |
- * | provider_id          | buildStorageCookieJS  | 사용자 고유 ID            | 'kakao_12345' |
- * | email                | buildStorageCookieJS  | 사용자 이메일             | 'a@b.com'     |
- * | name                 | buildStorageCookieJS  | 사용자 이름               | '홍길동'      |
+ * | user_info            | buildStorageCookieJS  | 사용자 정보 (JSON)        | '{"provider_id":"kakao_12345","email":"a@b.com","name":"홍길동"}' |
  * | auto_login           | buildStorageCookieJS  | 자동 로그인 여부          | 'true'        |
  * | app_theme            | buildStorageCookieJS  | 사용자 테마 설정          | 'dark'        |
  * | app_darkMode         | buildStorageCookieJS  | 시스템 다크모드 여부      | 'false'       |
@@ -110,9 +108,7 @@ export const buildStorageCookieJS = (data: StorageCookieData): string => {
 
   return `
 (function() {
-  ${setCookie('provider_id', data.providerId)}
-  ${setCookie('email', data.email)}
-  ${setCookie('name', data.name)}
+  ${setCookie('user_info', JSON.stringify({provider_id: data.providerId, email: data.email, name: data.name}))}
   ${setCookie('auto_login', String(data.autoLogin))}
   ${setCookie('app_theme', data.appTheme)}
   ${setCookie('app_darkMode', String(darkMode))}

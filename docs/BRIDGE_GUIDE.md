@@ -36,9 +36,7 @@ barogagi-app(React Native)과 barogagi-front(웹앱) 간의 데이터 통신 구
 |---|---|---|---|
 | `safe_area_top` | number | 상단 safe area 높이 (px) | `'59'` |
 | `safe_area_bottom` | number | 하단 safe area 높이 (px) | `'34'` |
-| `provider_id` | string | 로그인 사용자 고유 ID | `'kakao_12345'` |
-| `email` | string | 사용자 이메일 | `'user@mail.com'` |
-| `name` | string | 사용자 이름 | `'홍길동'` |
+| `user_info` | JSON string | 사용자 정보 (provider_id, email, name) | `'{"provider_id":"kakao_12345","email":"user@mail.com","name":"홍길동"}'` |
 | `auto_login` | boolean | 자동 로그인 여부 | `'true'` |
 | `app_theme` | string | 사용자 테마 설정 | `'dark'` / `'light'` / `'system'` |
 | `app_darkMode` | boolean | 시스템 다크모드 여부 | `'false'` |
@@ -57,6 +55,8 @@ function getCookie(name) {
 
 // 사용 예시
 const safeAreaTop = parseInt(getCookie('safe_area_top') ?? '0', 10);
+const userInfo = JSON.parse(getCookie('user_info') ?? '{}');
+// userInfo.provider_id, userInfo.email, userInfo.name
 const theme = getCookie('app_theme') ?? 'system';
 const isNotificationOn = getCookie('notification_enabled') === 'true';
 const isAutoLogin = getCookie('auto_login') === 'true';
