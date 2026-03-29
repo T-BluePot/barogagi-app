@@ -195,13 +195,24 @@ export const BRIDGE_INTERFACE_JS = `
 
     /**
      * 네이티브 스토리지에서 데이터를 조회합니다.
-     * 결과는 비동기로 window.getDataResult(key, data) 콜백을 통해 수신됩니다.
-     * (직접 return값이 없으므로 반드시 콜백을 구현해야 합니다)
+     * Promise를 반환하므로 await로 결과를 받을 수 있습니다.
      *
      * @param {string} key - 조회할 키
+     * @returns {Promise<string|null>} 저장된 값 또는 null
+     *
+     * @example
+     * const value = await window.BarogagiApp.getData('myKey');
      */
     getData: function(key) {
-      _post('GET_DATA', { key: key });
+      return new Promise(function(resolve) {
+        var callbackId = '_cb_' + key + '_' + Date.now();
+        // 일회성 콜백 등록 후 응답 수신 시 자동 해제
+        window[callbackId] = function(data) {
+          delete window[callbackId];
+          resolve(data);
+        };
+        _post('GET_DATA', { key: key, callbackId: callbackId });
+      });
     },
 
     /**
@@ -211,6 +222,26 @@ export const BRIDGE_INTERFACE_JS = `
      */
     deleteData: function(key) {
       _post('DELETE_DATA', { key: key });
+    },
+
+    /**
+     * 앱 테마를 변경합니다.
+     * 변경 즉시 쿠키(app_theme)가 갱신되며, 네이티브 스토리지에도 저장됩니다.
+     *
+     * @param {'light'|'dark'|'system'} theme - 테마 설정값
+     */
+    setTheme: function(theme) {
+      _post('SET_THEME', { theme: theme });
+    },
+
+    /**
+     * 푸시 알림 수신 설정을 변경합니다.
+     * 변경 즉시 쿠키(notification_enabled)가 갱신되며, 네이티브 스토리지에도 저장됩니다.
+     *
+     * @param {boolean} enabled - true: 알림 수신, false: 알림 차단
+     */
+    setNotification: function(enabled) {
+      _post('SET_NOTIFICATION', { enabled: enabled });
     },
   };
 

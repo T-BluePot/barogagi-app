@@ -26,7 +26,13 @@ const STORAGE_KEYS = {
   EMAIL: 'email',
   NAME: 'name',
   AUTO_LOGIN: 'auto_login',
+  APP_THEME: 'app_theme',
+  FCM_TOKEN: 'fcm_token',
+  NOTIFICATION_ENABLED: 'notification_enabled',
 } as const;
+
+/** 앱 테마 타입. system은 기기 설정을 따릅니다. */
+export type AppTheme = 'light' | 'dark' | 'system';
 
 /**
  * 웹에서 saveData/getData로 저장하는 키의 접두사.
@@ -121,13 +127,88 @@ export const StorageService = {
   /**
    * 자동 로그인 설정을 저장합니다.
    *
-   * 호출 시점: 웹에서 자동 로그인 설정을 변경할 때
-   * (현재는 직접 호출; 필요 시 BRIDGE_TYPES에 SET_AUTO_LOGIN 타입 추가 후 브릿지로 연결)
-   *
    * @param enabled - true: 자동 로그인 활성화, false: 비활성화
    */
   setAutoLogin: async (enabled: boolean): Promise<void> => {
     await AsyncStorage.setItem(STORAGE_KEYS.AUTO_LOGIN, String(enabled));
+  },
+
+  // ─────────────────────────────────────────
+  // 앱 테마 설정
+  // 사용자가 선택한 테마를 저장합니다. 'system'이면 기기 설정을 따릅니다.
+  // ─────────────────────────────────────────
+
+  /**
+   * 저장된 앱 테마를 조회합니다.
+   * 설정 이력이 없으면 기기 설정을 따르는 'system'을 반환합니다.
+   */
+  getAppTheme: async (): Promise<AppTheme> => {
+    const value = await AsyncStorage.getItem(STORAGE_KEYS.APP_THEME);
+    if (value === 'light' || value === 'dark') {
+      return value;
+    }
+    return 'system';
+  },
+
+  /**
+   * 앱 테마를 저장합니다.
+   *
+   * @param theme - 'light' | 'dark' | 'system'
+   */
+  setAppTheme: async (theme: AppTheme): Promise<void> => {
+    await AsyncStorage.setItem(STORAGE_KEYS.APP_THEME, theme);
+  },
+
+  // ─────────────────────────────────────────
+  // FCM 토큰
+  // Firebase에서 발급받은 푸시 토큰을 네이티브에 저장합니다.
+  // ─────────────────────────────────────────
+
+  /**
+   * 저장된 FCM 토큰을 조회합니다.
+   * 토큰이 없으면 빈 문자열을 반환합니다.
+   */
+  getFcmToken: async (): Promise<string> => {
+    const value = await AsyncStorage.getItem(STORAGE_KEYS.FCM_TOKEN);
+    return value ?? '';
+  },
+
+  /**
+   * FCM 토큰을 저장합니다.
+   *
+   * @param token - Firebase에서 발급받은 FCM 토큰
+   */
+  setFcmToken: async (token: string): Promise<void> => {
+    await AsyncStorage.setItem(STORAGE_KEYS.FCM_TOKEN, token);
+  },
+
+  // ─────────────────────────────────────────
+  // 알림 설정
+  // 사용자의 푸시 알림 수신 on/off 설정을 저장합니다.
+  // ─────────────────────────────────────────
+
+  /**
+   * 알림 수신 설정을 조회합니다.
+   * 설정 이력이 없으면 기본값 true(수신 허용)를 반환합니다.
+   */
+  getNotificationEnabled: async (): Promise<boolean> => {
+    const value = await AsyncStorage.getItem(STORAGE_KEYS.NOTIFICATION_ENABLED);
+    if (value === null) {
+      return true;
+    }
+    return value === 'true';
+  },
+
+  /**
+   * 알림 수신 설정을 저장합니다.
+   *
+   * @param enabled - true: 알림 수신, false: 알림 차단
+   */
+  setNotificationEnabled: async (enabled: boolean): Promise<void> => {
+    await AsyncStorage.setItem(
+      STORAGE_KEYS.NOTIFICATION_ENABLED,
+      String(enabled),
+    );
   },
 
   // ─────────────────────────────────────────
