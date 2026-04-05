@@ -26,7 +26,13 @@
  * - bridgeInterface.ts: window.BarogagiApp 주입 JS 코드
  */
 
-import React, {useRef, useState, useEffect, useCallback, useMemo} from 'react';
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   BackHandler,
   ActivityIndicator,
@@ -35,14 +41,14 @@ import {
   Linking,
   Share,
 } from 'react-native';
-import {WebView, WebViewMessageEvent} from 'react-native-webview';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorFallback from '../components/ErrorFallback';
-import {WEB_APP_URL, APP_NAME} from '../constants/config';
-import {BRIDGE_TYPES} from '../constants/bridgeTypes';
-import {StorageService} from '../services/StorageService';
-import {buildCookieInjectionJS} from '../utils/cookieInjector';
-import {BRIDGE_INTERFACE_JS} from '../utils/bridgeInterface';
+import { WEB_APP_URL, APP_NAME } from '../constants/config';
+import { BRIDGE_TYPES } from '../constants/bridgeTypes';
+import { StorageService } from '../services/StorageService';
+import { buildCookieInjectionJS } from '../utils/cookieInjector';
+import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
 
 /** 앱 시작 시 AsyncStorage에서 로드하는 초기 데이터 타입 */
 interface InitData {
@@ -97,7 +103,7 @@ const WebViewScreen = () => {
         StorageService.getLoginInfo(),
         StorageService.getAutoLogin(),
       ]);
-      setInitData({...loginInfo, autoLogin});
+      setInitData({ ...loginInfo, autoLogin });
     };
     loadInitData();
   }, []);
@@ -171,7 +177,7 @@ const WebViewScreen = () => {
          * 웹에서 호출: window.BarogagiApp.login(provider_id, email, name)
          */
         case BRIDGE_TYPES.LOGIN: {
-          const {provider_id, email, name} = message.data;
+          const { provider_id, email, name } = message.data;
           await StorageService.saveLoginInfo(provider_id, email, name);
           break;
         }
@@ -199,7 +205,7 @@ const WebViewScreen = () => {
          *   - 구글: @react-native-google-signin/google-signin
          */
         case BRIDGE_TYPES.SNS_LOGIN: {
-          const {type} = message.data;
+          const { type } = message.data;
           console.log('[SNS_LOGIN] type:', type);
           // SDK 연동 후 아래 패턴으로 결과를 웹에 전달하세요:
           // webViewRef.current?.injectJavaScript(
@@ -263,7 +269,7 @@ const WebViewScreen = () => {
          * 웹에서 호출: window.BarogagiApp.saveData('myKey', 'myValue')
          */
         case BRIDGE_TYPES.SAVE_DATA: {
-          const {key, value} = message.data;
+          const { key, value } = message.data;
           await StorageService.saveWebData(key, value);
           break;
         }
@@ -277,10 +283,12 @@ const WebViewScreen = () => {
          * 웹 콜백 구현: window.getDataResult = function(key, data) { ... }
          */
         case BRIDGE_TYPES.GET_DATA: {
-          const {key} = message.data;
+          const { key } = message.data;
           const value = await StorageService.getWebData(key);
           webViewRef.current?.injectJavaScript(
-            `window.getDataResult && window.getDataResult(${JSON.stringify(key)}, ${JSON.stringify(value)}); true;`,
+            `window.getDataResult && window.getDataResult(${JSON.stringify(
+              key,
+            )}, ${JSON.stringify(value)}); true;`,
           );
           break;
         }
@@ -291,7 +299,7 @@ const WebViewScreen = () => {
          * 웹에서 호출: window.BarogagiApp.deleteData('myKey')
          */
         case BRIDGE_TYPES.DELETE_DATA: {
-          const {key} = message.data;
+          const { key } = message.data;
           await StorageService.deleteWebData(key);
           break;
         }
@@ -361,17 +369,25 @@ const WebViewScreen = () => {
   // AsyncStorage 로딩 완료 전 — 쿠키 주입 준비가 안 됐으므로 WebView 렌더링 보류
   if (!initData) {
     return (
-      <View style={styles.container}>
+      <View style={styles.centered}>
         <ActivityIndicator size="large" color="#6C5CE7" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        },
+      ]}
+    >
       <WebView
         ref={webViewRef}
-        source={{uri: WEB_APP_URL}}
+        source={{ uri: WEB_APP_URL }}
         style={styles.webView}
         // WebView 내 페이지 이동 시 canGoBack 상태를 업데이트합니다
         onNavigationStateChange={navState => setCanGoBack(navState.canGoBack)}
@@ -429,6 +445,9 @@ const WebViewScreen = () => {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
