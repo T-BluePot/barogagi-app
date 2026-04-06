@@ -25,7 +25,7 @@
  * |----------------------|-----------------------|---------------------------|---------------|
  * | safe_area_top        | buildSafeAreaCookieJS | 상단 safe area (px)       | '59'          |
  * | safe_area_bottom     | buildSafeAreaCookieJS | 하단 safe area (px)       | '34'          |
- * | user_info            | buildStorageCookieJS  | 사용자 정보 (JSON)        | '{"provider_id":"kakao_12345","email":"a@b.com","name":"홍길동"}' |
+ * | user_info            | buildStorageCookieJS  | 사용자 정보 (JSON)        | '{"user_id":"","membership_no":"M000123","provider_id":"kakao_12345","email":"a@b.com","name":"홍길동"}' |
  * | auto_login           | buildStorageCookieJS  | 자동 로그인 여부          | 'true'        |
  * | app_theme            | buildStorageCookieJS  | 사용자 테마 설정          | 'dark'        |
  * | app_darkMode         | buildStorageCookieJS  | 시스템 다크모드 여부      | 'false'       |
@@ -45,11 +45,15 @@ import type {AppTheme} from '../services/StorageService';
 
 /** buildStorageCookieJS에 전달하는 스토리지 기반 데이터 타입 */
 export interface StorageCookieData {
-  /** 로그인 사용자의 SNS 제공자 고유 ID. 비로그인 시 빈 문자열. */
+  /** 일반 로그인 사용자 ID. SNS 로그인 시 빈 문자열. */
+  userId: string;
+  /** 회원 번호. 일반·SNS 로그인 공통. 비로그인 시 빈 문자열. */
+  membershipNo: string;
+  /** 로그인 사용자의 SNS 제공자 고유 ID. 일반 로그인 시 빈 문자열. */
   providerId: string;
-  /** 로그인 사용자 이메일. 비로그인 시 빈 문자열. */
+  /** 로그인 사용자 이메일. 일반 로그인·비로그인 시 빈 문자열. */
   email: string;
-  /** 로그인 사용자 이름. 비로그인 시 빈 문자열. */
+  /** 로그인 사용자 이름. 일반 로그인·비로그인 시 빈 문자열. */
   name: string;
   /** 자동 로그인 활성화 여부 */
   autoLogin: boolean;
@@ -108,7 +112,7 @@ export const buildStorageCookieJS = (data: StorageCookieData): string => {
 
   return `
 (function() {
-  ${setCookie('user_info', JSON.stringify({provider_id: data.providerId, email: data.email, name: data.name}))}
+  ${setCookie('user_info', JSON.stringify({user_id: data.userId, membership_no: data.membershipNo, provider_id: data.providerId, email: data.email, name: data.name}))}
   ${setCookie('auto_login', String(data.autoLogin))}
   ${setCookie('app_theme', data.appTheme)}
   ${setCookie('app_darkMode', String(darkMode))}

@@ -14,7 +14,7 @@
  * 앱을 종료했다 재실행해도 데이터가 유지됩니다 (단, 앱 삭제 시 초기화).
  *
  * 키 네임스페이스:
- *   - 'provider_id', 'email', 'name', 'auto_login' → 앱 내부 관리 키
+ *   - 'user_id', 'membership_no', 'provider_id', 'email', 'name', 'auto_login' → 앱 내부 관리 키
  *   - 'web_data_*' → 웹에서 saveData/getData로 저장하는 범용 데이터
  */
 
@@ -22,6 +22,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /** 앱 내부에서 직접 관리하는 저장 키 목록 */
 const STORAGE_KEYS = {
+  USER_ID: 'user_id',
+  MEMBERSHIP_NO: 'membership_no',
   PROVIDER_ID: 'provider_id',
   EMAIL: 'email',
   NAME: 'name',
@@ -50,20 +52,28 @@ export const StorageService = {
 
   /**
    * 로그인 완료 후 사용자 정보를 네이티브 스토리지에 저장합니다.
-   * 저장된 값은 다음 앱 실행 시 쿠키(provider_id, email, name)로 웹에 전달됩니다.
+   * 저장된 값은 다음 앱 실행 시 쿠키(user_info)로 웹에 전달됩니다.
    *
-   * 호출 시점: 웹에서 window.BarogagiApp.login(provider_id, email, name) 호출 시
+   * - 일반 로그인: userId, membershipNo 사용 / providerId, email, name은 빈 문자열
+   * - SNS 로그인:  providerId, email, name 사용 / userId는 빈 문자열
+   * - membershipNo는 두 케이스 공통
    *
-   * @param providerId - SNS 제공자 기준 고유 사용자 ID
-   * @param email - 사용자 이메일
-   * @param name - 사용자 이름
+   * @param userId       - 일반 로그인 사용자 ID. SNS 로그인 시 빈 문자열.
+   * @param membershipNo - 회원 번호. 일반·SNS 로그인 공통.
+   * @param providerId   - SNS 제공자 기준 고유 사용자 ID. 일반 로그인 시 빈 문자열.
+   * @param email        - 사용자 이메일. 일반 로그인 시 빈 문자열.
+   * @param name         - 사용자 이름. 일반 로그인 시 빈 문자열.
    */
   saveLoginInfo: async (
+    userId: string,
+    membershipNo: string,
     providerId: string,
     email: string,
     name: string,
   ): Promise<void> => {
     await AsyncStorage.multiSet([
+      [STORAGE_KEYS.USER_ID, userId],
+      [STORAGE_KEYS.MEMBERSHIP_NO, membershipNo],
       [STORAGE_KEYS.PROVIDER_ID, providerId],
       [STORAGE_KEYS.EMAIL, email],
       [STORAGE_KEYS.NAME, name],
@@ -79,19 +89,25 @@ export const StorageService = {
    * @returns 저장된 사용자 정보. 로그인 이력 없으면 빈 문자열 반환.
    */
   getLoginInfo: async (): Promise<{
+    userId: string;
+    membershipNo: string;
     providerId: string;
     email: string;
     name: string;
   }> => {
     const results = await AsyncStorage.multiGet([
+      STORAGE_KEYS.USER_ID,
+      STORAGE_KEYS.MEMBERSHIP_NO,
       STORAGE_KEYS.PROVIDER_ID,
       STORAGE_KEYS.EMAIL,
       STORAGE_KEYS.NAME,
     ]);
     return {
-      providerId: results[0][1] ?? '',
-      email: results[1][1] ?? '',
-      name: results[2][1] ?? '',
+      userId: results[0][1] ?? '',
+      membershipNo: results[1][1] ?? '',
+      providerId: results[2][1] ?? '',
+      email: results[3][1] ?? '',
+      name: results[4][1] ?? '',
     };
   },
 
@@ -103,6 +119,8 @@ export const StorageService = {
    */
   clearLoginInfo: async (): Promise<void> => {
     await AsyncStorage.multiRemove([
+      STORAGE_KEYS.USER_ID,
+      STORAGE_KEYS.MEMBERSHIP_NO,
       STORAGE_KEYS.PROVIDER_ID,
       STORAGE_KEYS.EMAIL,
       STORAGE_KEYS.NAME,
