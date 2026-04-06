@@ -24,8 +24,11 @@
  *
  * ### 인증
  * ```javascript
- * // 로그인 완료 후 — 앱 스토리지에 사용자 정보 저장 (재실행 시 쿠키로 복원됨)
- * window.BarogagiApp.login('kakao_12345', 'user@example.com', '홍길동');
+ * // 일반 로그인 완료 후 — 앱 스토리지에 사용자 정보 저장 (재실행 시 쿠키로 복원됨)
+ * window.BarogagiApp.login('user01', 'M000123');
+ *
+ * // SNS 로그인 완료 후 — 서버 인증까지 끝난 시점에 호출
+ * window.BarogagiApp.saveSnsLoginInfo('kakao_12345', 'user@example.com', '홍길동', 'M000123');
  *
  * // 로그아웃 — 앱 스토리지에서 사용자 정보 삭제
  * window.BarogagiApp.logout();
@@ -34,7 +37,7 @@
  * window.BarogagiApp.snsLogin('kakao');
  * // 웹에서 구현해야 할 콜백:
  * window.snsLoginResult = function(type, providerId, email, name) {
- *   // 로그인 결과 처리
+ *   // 로그인 결과 처리 후 서버 인증 → saveSnsLoginInfo() 호출
  * };
  * ```
  *
@@ -124,15 +127,28 @@ export const BRIDGE_INTERFACE_JS = `
    */
   window.BarogagiApp = {
     /**
-     * 로그인 완료 후 앱 스토리지에 사용자 정보를 저장합니다.
-     * 저장된 정보는 앱 재실행 시 쿠키(provider_id, email, name)로 웹에 자동 전달됩니다.
+     * 일반 로그인 완료 후 앱 스토리지에 사용자 정보를 저장합니다.
+     * 저장된 정보는 앱 재실행 시 쿠키(user_info)로 웹에 자동 전달됩니다.
      *
-     * @param {string} providerId - SNS 제공자 기준 고유 사용자 ID
-     * @param {string} email      - 사용자 이메일
-     * @param {string} name       - 사용자 이름
+     * @param {string} userId       - 서버에서 발급한 사용자 ID
+     * @param {string} membershipNo - 회원 번호
      */
-    login: function(providerId, email, name) {
-      _post('LOGIN', { provider_id: providerId, email: email, name: name });
+    login: function(userId, membershipNo) {
+      _post('LOGIN', { user_id: userId, membership_no: membershipNo });
+    },
+
+    /**
+     * SNS 로그인 완료 후 앱 스토리지에 사용자 정보를 저장합니다.
+     * snsLogin()으로 SDK 인증을 마친 뒤, 서버 인증까지 완료된 시점에 호출하세요.
+     * 저장된 정보는 앱 재실행 시 쿠키(user_info)로 웹에 자동 전달됩니다.
+     *
+     * @param {string} providerId   - SNS 제공자 기준 고유 사용자 ID
+     * @param {string} email        - 사용자 이메일
+     * @param {string} name         - 사용자 이름
+     * @param {string} membershipNo - 회원 번호 (서버 인증 응답에서 수신)
+     */
+    saveSnsLoginInfo: function(providerId, email, name, membershipNo) {
+      _post('SAVE_SNS_LOGIN_INFO', { provider_id: providerId, email: email, name: name, membership_no: membershipNo });
     },
 
     /**

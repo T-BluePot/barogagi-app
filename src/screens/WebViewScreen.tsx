@@ -47,6 +47,8 @@ import {BRIDGE_INTERFACE_JS} from '../utils/bridgeInterface';
 
 /** 앱 시작 시 AsyncStorage에서 로드하는 초기 데이터 타입 */
 interface InitData {
+  userId: string;
+  membershipNo: string;
   providerId: string;
   email: string;
   name: string;
@@ -168,8 +170,15 @@ const WebViewScreen = () => {
           // ── 인증 ──
 
           case BRIDGE_TYPES.LOGIN: {
-            const {provider_id, email, name} = message.data;
-            await StorageService.saveLoginInfo(provider_id, email, name);
+            const {user_id, membership_no} = message.data;
+            await StorageService.saveLoginInfo(user_id, membership_no, '', '', '');
+            await refreshStorageCookies();
+            break;
+          }
+
+          case BRIDGE_TYPES.SAVE_SNS_LOGIN_INFO: {
+            const {provider_id, email, name, membership_no} = message.data;
+            await StorageService.saveLoginInfo('', membership_no, provider_id, email, name);
             await refreshStorageCookies();
             break;
           }

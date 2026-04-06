@@ -28,12 +28,21 @@ export const BRIDGE_TYPES = {
   // ─────────────────────────────────────────
 
   /**
-   * 웹에서 로그인 완료 후 네이티브에 사용자 정보를 저장할 때 사용.
+   * 일반 로그인 완료 후 네이티브에 사용자 정보를 저장할 때 사용.
    * 네이티브는 이 정보를 AsyncStorage에 저장하고, 다음 앱 실행 시 쿠키로 웹에 전달.
    *
-   * payload: { provider_id: string, email: string, name: string }
+   * payload: { user_id: string, membership_no: string }
    */
   LOGIN: 'LOGIN',
+
+  /**
+   * SNS 로그인 완료 후 네이티브에 사용자 정보를 저장할 때 사용.
+   * snsLogin()으로 SDK 인증을 마친 뒤, 서버 인증까지 완료된 시점에 호출.
+   * 네이티브는 이 정보를 AsyncStorage에 저장하고, 다음 앱 실행 시 쿠키로 웹에 전달.
+   *
+   * payload: { provider_id: string, email: string, name: string, membership_no: string }
+   */
+  SAVE_SNS_LOGIN_INFO: 'SAVE_SNS_LOGIN_INFO',
 
   /**
    * 웹에서 로그아웃 또는 회원탈퇴 시 네이티브 저장 정보를 초기화할 때 사용.
