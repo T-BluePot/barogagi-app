@@ -48,7 +48,7 @@ WebView 로드 전 `injectedJavaScriptBeforeContentLoaded`로 `document.cookie`�
 |---|---|---|
 | `safe_area_top` | 상단 safe area 높이 (px) | useSafeAreaInsets |
 | `safe_area_bottom` | 하단 safe area 높이 (px) | useSafeAreaInsets |
-| `user_info` | 사용자 정보 JSON (`{provider_id, email, name}`) | AsyncStorage |
+| `user_info` | 사용자 정보 JSON (`{user_id, membership_no, provider_id, email, name}`) | AsyncStorage |
 | `auto_login` | 자동 로그인 여부 (`true`/`false`) | AsyncStorage |
 | `app_version` | 앱 버전 | config.ts |
 | `app_darkMode` | 시스템 다크모드 여부 (`true`/`false`) | Appearance API |
@@ -59,8 +59,11 @@ WebView 로드 전 `injectedJavaScriptBeforeContentLoaded`로 `document.cookie`�
 웹에서 `window.BarogagiApp.메서드명()`으로 호출.
 
 ```javascript
-// 로그인 완료 후 앱에 사용자 정보 저장
-window.BarogagiApp.login(provider_id, email, name)
+// 일반 로그인 완료 후 앱에 사용자 정보 저장
+window.BarogagiApp.login(userId, membershipNo)
+
+// SNS 로그인 완료 후 앱에 사용자 정보 저장 (서버 인증까지 끝난 시점에 호출)
+window.BarogagiApp.saveSnsLoginInfo(providerId, email, name, membershipNo)
 
 // 로그아웃 — 앱 저장 정보 초기화
 window.BarogagiApp.logout()
