@@ -38,14 +38,11 @@ import {
   ActivityIndicator,
   StyleSheet,
   View,
-  Linking,
-  Share,
 } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorFallback from '../components/ErrorFallback';
 import { WEB_APP_URL, APP_NAME } from '../constants/config';
-import { BRIDGE_TYPES } from '../constants/bridgeTypes';
 import { StorageService } from '../services/StorageService';
 import { buildCookieInjectionJS } from '../utils/cookieInjector';
 import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
@@ -157,198 +154,46 @@ const WebViewScreen = () => {
   }, [initData, insets.top, insets.bottom]);
 
   /**
-   * 웹 → 네이티브 메시지 수신 핸들러.
-   * 웹앱에서 window.BarogagiApp.xxx()를 호출하면 이 함수가 트리거됩니다.
+   * 웹 → 네이티브 RPC 메시지 핸들러.
    *
-   * message 구조: { type: string, data: object }
-   * type은 BRIDGE_TYPES 상수값과 일치해야 합니다.
+   * RN_BRIDGE.md §7 RPC 통신 프로토콜.
    *
-   * useCallback으로 감싸 불필요한 재생성을 방지합니다.
+   * 요청 포맷: { id: number, method: string, payload: object }
+   * 응답 포맷: window.__bridgeResolve(id, ok, value)를 injectJavaScript로 호출
+   *
+   * 응답은 반드시 보내야 함. 누락 시 웹 측 Promise가 3초 후 timeout으로 reject됨.
+   *
+   * method 분기는 후속 커밋(§1 storage, §4 openExternal, §5 exitApp)에서 추가됨.
+   * 각 case는 자체적으로 respond(true, value)를 호출한 뒤 break.
    */
   const handleMessage = useCallback(async (event: WebViewMessageEvent) => {
+    let parsed: { id?: unknown; method?: unknown; payload?: Record<string, unknown> };
     try {
-      const message = JSON.parse(event.nativeEvent.data);
+      parsed = JSON.parse(event.nativeEvent.data);
+    } catch (e) {
+      console.warn('[bridge] 메시지 파싱 실패:', e);
+      return;
+    }
 
-      switch (message.type) {
-        /**
-         * [LOGIN] 웹 로그인 완료 후 사용자 정보를 앱 스토리지에 저장합니다.
-         * 다음 앱 실행 시 이 정보가 쿠키로 웹에 자동 전달됩니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.login(provider_id, email, name)
-         */
-        case BRIDGE_TYPES.LOGIN: {
-          const { provider_id, email, name } = message.data;
-          await StorageService.saveLoginInfo(provider_id, email, name);
-          break;
-        }
+    const { id, method } = parsed;
+    // RN→웹 dispatch가 echo로 돌아오는 케이스(HARDWARE_BACK 등) 방어
+    if (typeof id !== 'number' || typeof method !== 'string') return;
 
-        /**
-         * [LOGOUT] 앱 스토리지에서 사용자 정보를 초기화합니다.
-         * 웹의 세션/쿠키 정리는 웹앱에서 별도로 처리해야 합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.logout()
-         */
-        case BRIDGE_TYPES.LOGOUT: {
-          await StorageService.clearLoginInfo();
-          break;
-        }
+    const respond = (ok: boolean, value: unknown) => {
+      webViewRef.current?.injectJavaScript(
+        `window.__bridgeResolve && window.__bridgeResolve(${id}, ${ok}, ${JSON.stringify(
+          value,
+        )}); true;`,
+      );
+    };
 
-        /**
-         * [SNS_LOGIN] 네이티브 SNS SDK로 로그인을 처리합니다.
-         * 완료 후 window.snsLoginResult(type, provider_id, email, name)를 웹에 콜백합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.snsLogin('kakao' | 'naver' | 'google')
-         *
-         * TODO: 각 SNS SDK 패키지 설치 후 구현 필요
-         *   - 카카오: react-native-kakao-login
-         *   - 네이버: @react-native-seoul/naver-login
-         *   - 구글: @react-native-google-signin/google-signin
-         */
-        case BRIDGE_TYPES.SNS_LOGIN: {
-          const { type } = message.data;
-          console.log('[SNS_LOGIN] type:', type);
-          // SDK 연동 후 아래 패턴으로 결과를 웹에 전달하세요:
-          // webViewRef.current?.injectJavaScript(
-          //   `window.snsLoginResult && window.snsLoginResult(
-          //     '${type}', providerId, email, name
-          //   ); true;`
-          // );
-          break;
-        }
-
-        /**
-         * [UPDATE_FCM_TOKEN] Firebase에서 FCM 토큰을 발급받아 웹에 전달합니다.
-         * 완료 후 window.saveFcmToken(token)을 웹에 콜백합니다.
-         * 웹은 이 토큰을 서버에 등록해 푸시 알림 수신에 사용합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.updateFcmToken()
-         *
-         * TODO: @react-native-firebase/messaging 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.UPDATE_FCM_TOKEN: {
-          console.log('[UPDATE_FCM_TOKEN] Firebase SDK 연동 후 구현');
-          // SDK 연동 후 아래 패턴으로 결과를 웹에 전달하세요:
-          // const token = await messaging().getToken();
-          // webViewRef.current?.injectJavaScript(
-          //   `window.saveFcmToken && window.saveFcmToken('${token}'); true;`
-          // );
-          break;
-        }
-
-        /**
-         * [SUBSCRIBE_TOPIC] 특정 FCM 토픽을 구독합니다.
-         * 해당 토픽으로 발송된 푸시 알림을 수신할 수 있습니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.subscribeTopic('notice')
-         *
-         * TODO: @react-native-firebase/messaging 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.SUBSCRIBE_TOPIC: {
-          console.log('[SUBSCRIBE_TOPIC] topic:', message.data?.topic);
-          // await messaging().subscribeToTopic(message.data.topic);
-          break;
-        }
-
-        /**
-         * [UNSUBSCRIBE_TOPIC] FCM 토픽 구독을 해제합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.unsubscribeTopic('notice')
-         *
-         * TODO: @react-native-firebase/messaging 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.UNSUBSCRIBE_TOPIC: {
-          console.log('[UNSUBSCRIBE_TOPIC] topic:', message.data?.topic);
-          // await messaging().unsubscribeFromTopic(message.data.topic);
-          break;
-        }
-
-        /**
-         * [SAVE_DATA] 웹에서 전달한 key-value를 앱 스토리지에 저장합니다.
-         * 앱 내부 키와의 충돌 방지를 위해 'web_data_' 접두사가 붙습니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.saveData('myKey', 'myValue')
-         */
-        case BRIDGE_TYPES.SAVE_DATA: {
-          const { key, value } = message.data;
-          await StorageService.saveWebData(key, value);
-          break;
-        }
-
-        /**
-         * [GET_DATA] 앱 스토리지에서 데이터를 조회해 웹에 콜백으로 반환합니다.
-         * 결과는 window.getDataResult(key, data)로 전달됩니다.
-         * 값이 없으면 data에 null이 전달됩니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.getData('myKey')
-         * 웹 콜백 구현: window.getDataResult = function(key, data) { ... }
-         */
-        case BRIDGE_TYPES.GET_DATA: {
-          const { key } = message.data;
-          const value = await StorageService.getWebData(key);
-          webViewRef.current?.injectJavaScript(
-            `window.getDataResult && window.getDataResult(${JSON.stringify(
-              key,
-            )}, ${JSON.stringify(value)}); true;`,
-          );
-          break;
-        }
-
-        /**
-         * [DELETE_DATA] 앱 스토리지에서 특정 키의 데이터를 삭제합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.deleteData('myKey')
-         */
-        case BRIDGE_TYPES.DELETE_DATA: {
-          const { key } = message.data;
-          await StorageService.deleteWebData(key);
-          break;
-        }
-
-        /**
-         * [NAVIGATE] WebView 내부에서 열 수 없는 외부 URL을 기기 기본 브라우저로 엽니다.
-         * 예: 결제 페이지, 약관 링크, 외부 서비스 연결 등
-         *
-         * 웹에서 호출: window.sendToNative('NAVIGATE', { url: 'https://...' })
-         */
-        case BRIDGE_TYPES.NAVIGATE: {
-          if (message.data?.url) {
-            Linking.openURL(message.data.url);
-          }
-          break;
-        }
-
-        /**
-         * [SHARE] iOS/Android 네이티브 공유 시트를 엽니다.
-         * 사용자가 카카오톡, 메시지, 클립보드 등 원하는 앱으로 공유할 수 있습니다.
-         *
-         * 웹에서 호출: window.sendToNative('SHARE', { message: '...', title: '...' })
-         */
-        case BRIDGE_TYPES.SHARE: {
-          Share.share({
-            message: message.data?.message || '',
-            title: message.data?.title || '',
-          });
-          break;
-        }
-
-        /**
-         * [HAPTIC] 기기 햅틱(진동) 피드백을 트리거합니다.
-         * 버튼 클릭, 에러 알림 등에 물리적 피드백을 줄 때 사용합니다.
-         *
-         * 웹에서 호출: window.sendToNative('HAPTIC', { style: 'light' })
-         *
-         * TODO: react-native-haptic-feedback 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.HAPTIC: {
-          console.log('[HAPTIC] style:', message.data?.style);
-          break;
-        }
-
+    try {
+      switch (method) {
         default:
-          console.log('[WebView] 알 수 없는 메시지 타입:', message);
+          throw new Error(`Unknown method: ${method}`);
       }
-    } catch (error) {
-      console.warn('[WebView] 메시지 파싱 실패:', error);
+    } catch (e) {
+      respond(false, String(e));
     }
   }, []);
 
