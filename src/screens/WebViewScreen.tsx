@@ -46,6 +46,13 @@ import { WEB_APP_URL, APP_NAME } from '../constants/config';
 import { StorageService } from '../services/StorageService';
 import { buildCookieInjectionJS } from '../utils/cookieInjector';
 import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
+import {
+  isBridgeNamespace,
+  storageDelete,
+  storageGet,
+  storageSet,
+  warmupSecureStorage,
+} from '../services/bridgeStorage';
 
 /** 앱 시작 시 AsyncStorage에서 로드하는 초기 데이터 타입 */
 interface InitData {
@@ -103,6 +110,14 @@ const WebViewScreen = () => {
       setInitData({ ...loginInfo, autoLogin });
     };
     loadInitData();
+  }, []);
+
+  /**
+   * §2 — EncryptedStorage 첫 접근 시 키 derivation 비용을 미리 발생시켜
+   * 부팅 직후 웹이 secure 토큰 4종을 동시 조회할 때의 white screen 시간을 단축.
+   */
+  useEffect(() => {
+    warmupSecureStorage();
   }, []);
 
   /**
@@ -175,7 +190,7 @@ const WebViewScreen = () => {
       return;
     }
 
-    const { id, method } = parsed;
+    const { id, method, payload } = parsed;
     // RN→웹 dispatch가 echo로 돌아오는 케이스(HARDWARE_BACK 등) 방어
     if (typeof id !== 'number' || typeof method !== 'string') return;
 
@@ -189,6 +204,41 @@ const WebViewScreen = () => {
 
     try {
       switch (method) {
+        case 'getData': {
+          const p = (payload ?? {}) as { ns?: unknown; key?: unknown };
+          if (!isBridgeNamespace(p.ns) || typeof p.key !== 'string') {
+            throw new Error('Invalid getData payload');
+          }
+          const value = await storageGet(p.ns, p.key);
+          respond(true, value);
+          break;
+        }
+        case 'saveData': {
+          const p = (payload ?? {}) as {
+            ns?: unknown;
+            key?: unknown;
+            value?: unknown;
+          };
+          if (
+            !isBridgeNamespace(p.ns) ||
+            typeof p.key !== 'string' ||
+            typeof p.value !== 'string'
+          ) {
+            throw new Error('Invalid saveData payload');
+          }
+          await storageSet(p.ns, p.key, p.value);
+          respond(true, null);
+          break;
+        }
+        case 'deleteData': {
+          const p = (payload ?? {}) as { ns?: unknown; key?: unknown };
+          if (!isBridgeNamespace(p.ns) || typeof p.key !== 'string') {
+            throw new Error('Invalid deleteData payload');
+          }
+          await storageDelete(p.ns, p.key);
+          respond(true, null);
+          break;
+        }
         default:
           throw new Error(`Unknown method: ${method}`);
       }
