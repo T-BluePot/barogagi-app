@@ -395,6 +395,10 @@ const WebViewScreen = () => {
         allowsBackForwardNavigationGestures={true}
         // localStorage, sessionStorage 활성화 (Zustand persist, JWT 저장에 필요)
         domStorageEnabled={true}
+        // OAuth/결제 위젯이 서드파티 쿠키에 의존하는 경우 대비 (Android 기본 false)
+        thirdPartyCookiesEnabled={true}
+        // window.open('_blank') 호출 시 새 WebView 생성을 막아 링크 무반응 방지
+        setSupportMultipleWindows={false}
         // iOS 스크롤 바운스 효과 제거
         bounces={false}
         // Android 오버스크롤 효과 제거
