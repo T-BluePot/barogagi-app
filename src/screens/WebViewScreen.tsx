@@ -1,38 +1,18 @@
 /**
  * @file WebViewScreen.tsx
- * @description 앱의 메인 화면. barogagi-front 웹앱을 WebView로 렌더링합니다.
+ * @description 앱의 메인 화면. barogagi-front 웹앱을 WebView로 렌더링.
  *
- * ## 전체 동작 흐름
+ * RN_BRIDGE.md 명세에 따른 RPC 기반 브릿지.
  *
- * [앱 시작]
- *   1. AsyncStorage에서 로그인 정보, 자동 로그인 설정을 로드 (initData)
- *   2. initData 로딩 완료 전에는 로딩 스피너 표시
- *
- * [WebView 렌더링]
- *   3. injectedJavaScriptBeforeContentLoaded 실행 (페이지 파싱 전)
- *      - 쿠키 주입: safe area, 사용자 정보, 앱 버전, 다크모드 등
- *      - window.BarogagiApp 인터페이스 등록
- *   4. 웹앱(barogagi-front) 로드 시작
- *   5. 웹앱이 document.cookie를 읽어 초기 상태 설정
- *
- * [런타임 브릿지]
- *   - 웹 → 네이티브: window.BarogagiApp.xxx() → postMessage → handleMessage()
- *   - 네이티브 → 웹: webViewRef.current.injectJavaScript() → 웹의 콜백 함수 호출
- *
- * ## 파일 구조와의 연관
- * - bridgeTypes.ts   : handleMessage의 switch case 타입 상수
- * - StorageService.ts: AsyncStorage 읽기/쓰기 추상화
- * - cookieInjector.ts: 쿠키 주입 JS 코드 생성
- * - bridgeInterface.ts: window.BarogagiApp 주입 JS 코드
+ * - 웹 → 네이티브: window.BarogagiApp.method(...) → postMessage → handleMessage
+ *   응답: window.__bridgeResolve(id, ok, value) (§7)
+ * - 네이티브 → 웹: webViewRef.injectJavaScript(...)
+ * - 5개 RPC method: getData / saveData / deleteData / openExternal / exitApp
+ * - 하드웨어 백: HARDWARE_BACK 메시지 dispatch, 웹이 결정 (§5)
+ * - safe area: --sai-* CSS 변수로 inject (§6)
  */
 
-import React, {
-  useRef,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   BackHandler,
   ActivityIndicator,
@@ -44,8 +24,6 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorFallback from '../components/ErrorFallback';
 import { WEB_APP_URL, APP_NAME, APP_HOST } from '../constants/config';
-import { StorageService } from '../services/StorageService';
-import { buildCookieInjectionJS } from '../utils/cookieInjector';
 import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
 import {
   isBridgeNamespace,
@@ -55,23 +33,11 @@ import {
   warmupSecureStorage,
 } from '../services/bridgeStorage';
 
-/** 앱 시작 시 AsyncStorage에서 로드하는 초기 데이터 타입 */
-interface InitData {
-  providerId: string;
-  email: string;
-  name: string;
-  autoLogin: boolean;
-}
-
 const WebViewScreen = () => {
-  /** WebView 인스턴스 참조 — goBack(), injectJavaScript() 등 직접 제어에 사용 */
+  /** WebView 인스턴스 참조 — injectJavaScript()/reload() 등 직접 제어에 사용 */
   const webViewRef = useRef<WebView>(null);
 
-  /**
-   * 기기의 safe area 인셋 값 (단위: px).
-   * iOS 노치/Dynamic Island/홈 인디케이터, Android 시스템 바 높이가 반영됩니다.
-   * 이 값을 쿠키로 전달해 웹앱이 겹침 없이 레이아웃을 구성할 수 있게 합니다.
-   */
+  /** 기기의 safe area 인셋 값. §6 CSS 변수 inject에 사용. */
   const insets = useSafeAreaInsets();
 
   /** 로딩 스피너 표시 여부 */
@@ -79,36 +45,12 @@ const WebViewScreen = () => {
 
   /**
    * 최초 페이지 로드 완료 여부.
-   * SPA(Single Page Application)에서는 페이지 이동 시마다 onLoadStart가 재트리거됩니다.
-   * 이 플래그가 true가 된 이후에는 onLoadStart에서 isLoading을 true로 올리지 않아
-   * 페이지 이동 때마다 스피너가 반복 표시되는 문제를 방지합니다.
+   * SPA 페이지 이동 시 onLoadStart가 반복되지만 이 플래그가 true면 스피너 재표시 안 함.
    */
   const [initialLoaded, setInitialLoaded] = useState(false);
 
-  /** 페이지 로드 에러 여부 — true가 되면 ErrorFallback 컴포넌트를 표시합니다 */
+  /** 페이지 로드 에러 여부 — true가 되면 ErrorFallback 표시 */
   const [hasError, setHasError] = useState(false);
-
-  /**
-   * AsyncStorage에서 로드한 초기 데이터.
-   * null이면 아직 로딩 중이므로 WebView를 렌더링하지 않습니다.
-   * (쿠키 주입 전에 WebView가 로드되면 쿠키가 비어있게 되므로 반드시 기다려야 함)
-   */
-  const [initData, setInitData] = useState<InitData | null>(null);
-
-  /**
-   * 앱 시작 시 AsyncStorage에서 초기 데이터를 로드합니다.
-   * 두 개의 비동기 작업을 Promise.all로 병렬 실행해 대기 시간을 최소화합니다.
-   */
-  useEffect(() => {
-    const loadInitData = async () => {
-      const [loginInfo, autoLogin] = await Promise.all([
-        StorageService.getLoginInfo(),
-        StorageService.getAutoLogin(),
-      ]);
-      setInitData({ ...loginInfo, autoLogin });
-    };
-    loadInitData();
-  }, []);
 
   /**
    * §2 — EncryptedStorage 첫 접근 시 키 derivation 비용을 미리 발생시켜
@@ -167,31 +109,6 @@ const WebViewScreen = () => {
     return () => subscription.remove();
   }, []);
 
-  /**
-   * WebView 로드 전 주입할 JS 코드를 조합합니다.
-   *
-   * initData 또는 insets 값이 변경될 때만 재계산합니다 (useMemo).
-   * 두 부분으로 구성됩니다:
-   *   1. 쿠키 주입 JS (buildCookieInjectionJS)
-   *   2. window.BarogagiApp 인터페이스 정의 JS (BRIDGE_INTERFACE_JS)
-   *
-   * initData가 null이면 아직 스토리지 로딩 중이므로 'true;'만 반환합니다.
-   * (injectedJavaScriptBeforeContentLoaded는 반드시 truthy 값으로 끝나야 함)
-   */
-  const injectedJSBeforeContent = useMemo(() => {
-    if (!initData) {
-      return 'true;';
-    }
-    const cookieJS = buildCookieInjectionJS({
-      safeAreaTop: insets.top,
-      safeAreaBottom: insets.bottom,
-      providerId: initData.providerId,
-      email: initData.email,
-      name: initData.name,
-      autoLogin: initData.autoLogin,
-    });
-    return cookieJS + '\n' + BRIDGE_INTERFACE_JS + '\ntrue;';
-  }, [initData, insets.top, insets.bottom]);
 
   /**
    * 웹 → 네이티브 RPC 메시지 핸들러.
@@ -319,15 +236,6 @@ const WebViewScreen = () => {
     return <ErrorFallback onRetry={handleRetry} />;
   }
 
-  // AsyncStorage 로딩 완료 전 — 쿠키 주입 준비가 안 됐으므로 WebView 렌더링 보류
-  if (!initData) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <WebView
@@ -356,10 +264,10 @@ const WebViewScreen = () => {
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"
         /**
-         * 페이지 파싱 전 실행 — 쿠키 주입 + window.BarogagiApp 등록
-         * 이 타이밍에 실행해야 웹앱 React 초기화 시점에 쿠키와 인터페이스가 준비됩니다.
+         * 페이지 파싱 전 RPC 인터페이스(window.BarogagiApp + __bridgeResolve)를 등록.
+         * BeforeContentLoaded여야 웹앱 React 초기화 직전에 window.BarogagiApp이 준비됨.
          */
-        injectedJavaScriptBeforeContentLoaded={injectedJSBeforeContent}
+        injectedJavaScriptBeforeContentLoaded={BRIDGE_INTERFACE_JS}
         // 웹 → 네이티브 메시지 수신
         onMessage={handleMessage}
         // 외부 호스트 네비게이션 차단 (§4)
@@ -397,11 +305,6 @@ const WebViewScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   webView: {
     flex: 1,
