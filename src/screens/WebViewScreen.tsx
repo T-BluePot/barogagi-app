@@ -74,9 +74,6 @@ const WebViewScreen = () => {
    */
   const insets = useSafeAreaInsets();
 
-  /** WebView 내 현재 페이지가 뒤로 갈 수 있는지 여부 (Android 뒤로가기 버튼 제어용) */
-  const [canGoBack, setCanGoBack] = useState(false);
-
   /** 로딩 스피너 표시 여부 */
   const [isLoading, setIsLoading] = useState(true);
 
@@ -122,26 +119,29 @@ const WebViewScreen = () => {
   }, []);
 
   /**
-   * Android 하드웨어 뒤로가기 버튼 처리.
-   * WebView 내 이전 페이지가 있으면 goBack()을 호출하고,
-   * 더 이상 뒤로 갈 페이지가 없으면 기본 동작(앱 종료)을 수행합니다.
+   * §5 — Android 하드웨어 뒤로가기 처리.
    *
-   * canGoBack 상태가 변경될 때마다 구독을 재등록합니다.
+   * SPA + WebView 조합에서 webView.goBack()은 React Router 변경을 못 따라가므로
+   * 이벤트를 항상 swallow(return true)하고, 웹에 HARDWARE_BACK 메시지를 dispatch.
+   * 웹의 nativeBackHandler가 모달 stack → router back → exitApp 순으로 결정하고,
+   * 더 처리할 게 없으면 BarogagiApp.exitApp() RPC를 호출. 그때만 앱이 종료됨.
    */
   useEffect(() => {
     const onBackPress = () => {
-      if (canGoBack && webViewRef.current) {
-        webViewRef.current.goBack();
-        return true; // 이벤트 소비 — 앱 종료 막음
-      }
-      return false; // 기본 동작 허용 — 앱 종료
+      webViewRef.current?.injectJavaScript(`
+        window.dispatchEvent(new MessageEvent('message', {
+          data: JSON.stringify({ type: 'HARDWARE_BACK' })
+        }));
+        true;
+      `);
+      return true;
     };
     const subscription = BackHandler.addEventListener(
       'hardwareBackPress',
       onBackPress,
     );
     return () => subscription.remove();
-  }, [canGoBack]);
+  }, []);
 
   /**
    * WebView 로드 전 주입할 JS 코드를 조합합니다.
@@ -249,6 +249,12 @@ const WebViewScreen = () => {
           respond(true, null);
           break;
         }
+        case 'exitApp': {
+          // 응답을 먼저 보내야 웹 측 Promise가 timeout 없이 resolve 됨
+          respond(true, null);
+          BackHandler.exitApp();
+          break;
+        }
         default:
           throw new Error(`Unknown method: ${method}`);
       }
@@ -312,8 +318,6 @@ const WebViewScreen = () => {
         ref={webViewRef}
         source={{ uri: WEB_APP_URL }}
         style={styles.webView}
-        // WebView 내 페이지 이동 시 canGoBack 상태를 업데이트합니다
-        onNavigationStateChange={navState => setCanGoBack(navState.canGoBack)}
         // iOS 스와이프 뒤로가기 제스처 활성화
         allowsBackForwardNavigationGestures={true}
         // localStorage, sessionStorage 활성화 (Zustand persist, JWT 저장에 필요)
