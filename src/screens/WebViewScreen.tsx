@@ -119,6 +119,30 @@ const WebViewScreen = () => {
   }, []);
 
   /**
+   * §6 — safe area inset을 CSS 변수(--sai-*)로 WebView에 주입.
+   *
+   * WebView 138+ env(safe-area-inset-*) 회귀 버그(react-native-webview #3828) 대응.
+   * 웹의 .pt-safe / .pb-safe / .pl-safe / .pr-safe utility가 max(env(...), var(--sai-*))
+   * fallback으로 이 값을 사용.
+   *
+   * inset이 바뀔 때마다(회전 등) 재주입. onLoadEnd에서도 한 번 더 호출해 새로고침 후
+   * 변수 휘발을 방지(아래 onLoadEnd 콜백 참고).
+   */
+  const injectSafeAreaVars = useCallback(() => {
+    webViewRef.current?.injectJavaScript(`
+      document.documentElement.style.setProperty('--sai-top',    '${insets.top}px');
+      document.documentElement.style.setProperty('--sai-bottom', '${insets.bottom}px');
+      document.documentElement.style.setProperty('--sai-left',   '${insets.left}px');
+      document.documentElement.style.setProperty('--sai-right',  '${insets.right}px');
+      true;
+    `);
+  }, [insets.top, insets.bottom, insets.left, insets.right]);
+
+  useEffect(() => {
+    injectSafeAreaVars();
+  }, [injectSafeAreaVars]);
+
+  /**
    * §5 — Android 하드웨어 뒤로가기 처리.
    *
    * SPA + WebView 조합에서 webView.goBack()은 React Router 변경을 못 따라가므로
@@ -305,15 +329,7 @@ const WebViewScreen = () => {
   }
 
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom,
-        },
-      ]}
-    >
+    <View style={styles.container}>
       <WebView
         ref={webViewRef}
         source={{ uri: WEB_APP_URL }}
@@ -362,6 +378,8 @@ const WebViewScreen = () => {
         onLoadEnd={() => {
           setIsLoading(false);
           setInitialLoaded(true);
+          // 새로고침/SPA 라우팅 시 CSS 변수 휘발 방지를 위해 재주입 (§6)
+          injectSafeAreaVars();
         }}
         // 네트워크 오류, 페이지 없음 등 로드 실패 시 에러 폴백으로 전환
         onError={() => setHasError(true)}
