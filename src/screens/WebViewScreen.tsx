@@ -38,11 +38,12 @@ import {
   ActivityIndicator,
   StyleSheet,
   View,
+  Linking,
 } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorFallback from '../components/ErrorFallback';
-import { WEB_APP_URL, APP_NAME } from '../constants/config';
+import { WEB_APP_URL, APP_NAME, APP_HOST } from '../constants/config';
 import { StorageService } from '../services/StorageService';
 import { buildCookieInjectionJS } from '../utils/cookieInjector';
 import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
@@ -239,12 +240,39 @@ const WebViewScreen = () => {
           respond(true, null);
           break;
         }
+        case 'openExternal': {
+          const p = (payload ?? {}) as { url?: unknown };
+          if (typeof p.url !== 'string') {
+            throw new Error('Invalid openExternal payload');
+          }
+          await Linking.openURL(p.url);
+          respond(true, null);
+          break;
+        }
         default:
           throw new Error(`Unknown method: ${method}`);
       }
     } catch (e) {
       respond(false, String(e));
     }
+  }, []);
+
+  /**
+   * §4 — 외부 호스트로의 네비게이션을 시스템 브라우저로 위임.
+   *
+   * APP_HOST(=WEB_APP_URL의 호스트명)와 about: 스킴만 WebView 내부 로딩 허용.
+   * 외부 호스트는 Linking.openURL로 위임하고 WebView 내부 로딩은 차단.
+   */
+  const shouldAllowNavigation = useCallback((req: { url: string }): boolean => {
+    if (req.url.startsWith('about:')) return true;
+    try {
+      const u = new URL(req.url);
+      if (u.hostname === APP_HOST) return true;
+    } catch {
+      return false;
+    }
+    Linking.openURL(req.url);
+    return false;
   }, []);
 
   /**
@@ -314,6 +342,8 @@ const WebViewScreen = () => {
         injectedJavaScriptBeforeContentLoaded={injectedJSBeforeContent}
         // 웹 → 네이티브 메시지 수신
         onMessage={handleMessage}
+        // 외부 호스트 네비게이션 차단 (§4)
+        onShouldStartLoadWithRequest={shouldAllowNavigation}
         /**
          * SPA 로딩 스피너 처리:
          * - initialLoaded가 false인 최초 1회만 스피너를 표시합니다.

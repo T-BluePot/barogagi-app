@@ -11,5 +11,11 @@ export const WEB_APP_URL = __DEV__
     })!
   : 'https://barogagi.xyz/auth';
 
+/**
+ * 외부 링크 차단(§4)용 호스트 화이트리스트.
+ * WEB_APP_URL의 hostname을 그대로 사용해 dev/prod 모두 자동 매칭.
+ */
+export const APP_HOST = new URL(WEB_APP_URL).hostname;
+
 export const APP_NAME = 'BarogagiApp';
 export const APP_VERSION = '1.0.0';
