@@ -9,7 +9,7 @@ barogagi-app은 React Native WebView 기반의 웹앱 래퍼.
 
 ## 핵심 정보
 - **웹 프로젝트**: T-BluePot/barogagi-front (별도 레포)
-- **프로덕션 URL**: https://barogagi.xyz/auth
+- **프로덕션 URL**: https://fitpl.xyz/auth
 - **개발 서버**: localhost:8080 (barogagi-front의 Vite dev server)
 - **앱 식별자**: BarogagiApp (User-Agent에 추가됨)
 

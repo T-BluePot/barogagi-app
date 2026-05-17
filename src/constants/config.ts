@@ -9,7 +9,7 @@ export const WEB_APP_URL = __DEV__
       android: `http://${ANDROID_DEV_HOST}:8080`,
       ios: 'http://localhost:8080',
     })!
-  : 'https://barogagi.xyz/auth';
+  : 'https://fitpl.xyz/auth';
 
 /**
  * 외부 링크 차단(§4)용 호스트 화이트리스트.
