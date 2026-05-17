@@ -81,3 +81,6 @@ yarn-error.log
 
 # Claude
 .claude/**
+
+# Local gradle properties with secrets
+android/gradle.properties
