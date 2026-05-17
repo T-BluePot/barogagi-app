@@ -77,9 +77,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.barogagiapp"
+    namespace "com.bluehp.fitpl"
     defaultConfig {
-        applicationId "com.barogagiapp"
+        applicationId "com.bluehp.fitpl"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

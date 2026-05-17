@@ -1,4 +1,4 @@
-package com.barogagiapp
+package com.bluehp.fitpl
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
