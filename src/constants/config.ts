@@ -9,7 +9,13 @@ export const WEB_APP_URL = __DEV__
       android: `http://${ANDROID_DEV_HOST}:8080`,
       ios: 'http://localhost:8080',
     })!
-  : 'https://barogagi.xyz/auth';
+  : 'https://fitpl.xyz/auth';
 
-export const APP_NAME = 'BarogagiApp';
+/**
+ * 외부 링크 차단(§4)용 호스트 화이트리스트.
+ * WEB_APP_URL의 hostname을 그대로 사용해 dev/prod 모두 자동 매칭.
+ */
+export const APP_HOST = new URL(WEB_APP_URL).hostname;
+
+export const APP_NAME = 'fitpl';
 export const APP_VERSION = '1.0.0';

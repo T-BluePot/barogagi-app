@@ -1,355 +1,225 @@
 /**
  * @file WebViewScreen.tsx
- * @description 앱의 메인 화면. barogagi-front 웹앱을 WebView로 렌더링합니다.
+ * @description 앱의 메인 화면. barogagi-front 웹앱을 WebView로 렌더링.
  *
- * ## 전체 동작 흐름
+ * RN_BRIDGE.md 명세에 따른 RPC 기반 브릿지.
  *
- * [앱 시작]
- *   1. AsyncStorage에서 로그인 정보, 자동 로그인 설정을 로드 (initData)
- *   2. initData 로딩 완료 전에는 로딩 스피너 표시
- *
- * [WebView 렌더링]
- *   3. injectedJavaScriptBeforeContentLoaded 실행 (페이지 파싱 전)
- *      - 쿠키 주입: safe area, 사용자 정보, 앱 버전, 다크모드 등
- *      - window.BarogagiApp 인터페이스 등록
- *   4. 웹앱(barogagi-front) 로드 시작
- *   5. 웹앱이 document.cookie를 읽어 초기 상태 설정
- *
- * [런타임 브릿지]
- *   - 웹 → 네이티브: window.BarogagiApp.xxx() → postMessage → handleMessage()
- *   - 네이티브 → 웹: webViewRef.current.injectJavaScript() → 웹의 콜백 함수 호출
- *
- * ## 파일 구조와의 연관
- * - bridgeTypes.ts   : handleMessage의 switch case 타입 상수
- * - StorageService.ts: AsyncStorage 읽기/쓰기 추상화
- * - cookieInjector.ts: 쿠키 주입 JS 코드 생성
- * - bridgeInterface.ts: window.BarogagiApp 주입 JS 코드
+ * - 웹 → 네이티브: window.BarogagiApp.method(...) → postMessage → handleMessage
+ *   응답: window.__bridgeResolve(id, ok, value) (§7)
+ * - 네이티브 → 웹: webViewRef.injectJavaScript(...)
+ * - 5개 RPC method: getData / saveData / deleteData / openExternal / exitApp
+ * - 하드웨어 백: HARDWARE_BACK 메시지 dispatch, 웹이 결정 (§5)
+ * - safe area: --sai-* CSS 변수로 inject (§6)
  */
 
-import React, {
-  useRef,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   BackHandler,
   ActivityIndicator,
   StyleSheet,
   View,
   Linking,
-  Share,
 } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorFallback from '../components/ErrorFallback';
-import { WEB_APP_URL, APP_NAME } from '../constants/config';
-import { BRIDGE_TYPES } from '../constants/bridgeTypes';
-import { StorageService } from '../services/StorageService';
-import { buildCookieInjectionJS } from '../utils/cookieInjector';
+import { WEB_APP_URL, APP_NAME, APP_HOST } from '../constants/config';
 import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
-
-/** 앱 시작 시 AsyncStorage에서 로드하는 초기 데이터 타입 */
-interface InitData {
-  providerId: string;
-  email: string;
-  name: string;
-  autoLogin: boolean;
-}
+import {
+  isBridgeNamespace,
+  storageDelete,
+  storageGet,
+  storageSet,
+  warmupSecureStorage,
+} from '../services/bridgeStorage';
 
 const WebViewScreen = () => {
-  /** WebView 인스턴스 참조 — goBack(), injectJavaScript() 등 직접 제어에 사용 */
+  /** WebView 인스턴스 참조 — injectJavaScript()/reload() 등 직접 제어에 사용 */
   const webViewRef = useRef<WebView>(null);
 
-  /**
-   * 기기의 safe area 인셋 값 (단위: px).
-   * iOS 노치/Dynamic Island/홈 인디케이터, Android 시스템 바 높이가 반영됩니다.
-   * 이 값을 쿠키로 전달해 웹앱이 겹침 없이 레이아웃을 구성할 수 있게 합니다.
-   */
+  /** 기기의 safe area 인셋 값. §6 CSS 변수 inject에 사용. */
   const insets = useSafeAreaInsets();
-
-  /** WebView 내 현재 페이지가 뒤로 갈 수 있는지 여부 (Android 뒤로가기 버튼 제어용) */
-  const [canGoBack, setCanGoBack] = useState(false);
 
   /** 로딩 스피너 표시 여부 */
   const [isLoading, setIsLoading] = useState(true);
 
   /**
    * 최초 페이지 로드 완료 여부.
-   * SPA(Single Page Application)에서는 페이지 이동 시마다 onLoadStart가 재트리거됩니다.
-   * 이 플래그가 true가 된 이후에는 onLoadStart에서 isLoading을 true로 올리지 않아
-   * 페이지 이동 때마다 스피너가 반복 표시되는 문제를 방지합니다.
+   * SPA 페이지 이동 시 onLoadStart가 반복되지만 이 플래그가 true면 스피너 재표시 안 함.
    */
   const [initialLoaded, setInitialLoaded] = useState(false);
 
-  /** 페이지 로드 에러 여부 — true가 되면 ErrorFallback 컴포넌트를 표시합니다 */
+  /** 페이지 로드 에러 여부 — true가 되면 ErrorFallback 표시 */
   const [hasError, setHasError] = useState(false);
 
   /**
-   * AsyncStorage에서 로드한 초기 데이터.
-   * null이면 아직 로딩 중이므로 WebView를 렌더링하지 않습니다.
-   * (쿠키 주입 전에 WebView가 로드되면 쿠키가 비어있게 되므로 반드시 기다려야 함)
-   */
-  const [initData, setInitData] = useState<InitData | null>(null);
-
-  /**
-   * 앱 시작 시 AsyncStorage에서 초기 데이터를 로드합니다.
-   * 두 개의 비동기 작업을 Promise.all로 병렬 실행해 대기 시간을 최소화합니다.
+   * §2 — EncryptedStorage 첫 접근 시 키 derivation 비용을 미리 발생시켜
+   * 부팅 직후 웹이 secure 토큰 4종을 동시 조회할 때의 white screen 시간을 단축.
    */
   useEffect(() => {
-    const loadInitData = async () => {
-      const [loginInfo, autoLogin] = await Promise.all([
-        StorageService.getLoginInfo(),
-        StorageService.getAutoLogin(),
-      ]);
-      setInitData({ ...loginInfo, autoLogin });
-    };
-    loadInitData();
+    warmupSecureStorage();
   }, []);
 
   /**
-   * Android 하드웨어 뒤로가기 버튼 처리.
-   * WebView 내 이전 페이지가 있으면 goBack()을 호출하고,
-   * 더 이상 뒤로 갈 페이지가 없으면 기본 동작(앱 종료)을 수행합니다.
+   * §6 — safe area inset을 CSS 변수(--sai-*)로 WebView에 주입.
    *
-   * canGoBack 상태가 변경될 때마다 구독을 재등록합니다.
+   * WebView 138+ env(safe-area-inset-*) 회귀 버그(react-native-webview #3828) 대응.
+   * 웹의 .pt-safe / .pb-safe / .pl-safe / .pr-safe utility가 max(env(...), var(--sai-*))
+   * fallback으로 이 값을 사용.
+   *
+   * inset이 바뀔 때마다(회전 등) 재주입. onLoadEnd에서도 한 번 더 호출해 새로고침 후
+   * 변수 휘발을 방지(아래 onLoadEnd 콜백 참고).
+   */
+  const injectSafeAreaVars = useCallback(() => {
+    webViewRef.current?.injectJavaScript(`
+      document.documentElement.style.setProperty('--sai-top',    '${insets.top}px');
+      document.documentElement.style.setProperty('--sai-bottom', '${insets.bottom}px');
+      document.documentElement.style.setProperty('--sai-left',   '${insets.left}px');
+      document.documentElement.style.setProperty('--sai-right',  '${insets.right}px');
+      true;
+    `);
+  }, [insets.top, insets.bottom, insets.left, insets.right]);
+
+  useEffect(() => {
+    injectSafeAreaVars();
+  }, [injectSafeAreaVars]);
+
+  /**
+   * §5 — Android 하드웨어 뒤로가기 처리.
+   *
+   * SPA + WebView 조합에서 webView.goBack()은 React Router 변경을 못 따라가므로
+   * 이벤트를 항상 swallow(return true)하고, 웹에 HARDWARE_BACK 메시지를 dispatch.
+   * 웹의 nativeBackHandler가 모달 stack → router back → exitApp 순으로 결정하고,
+   * 더 처리할 게 없으면 BarogagiApp.exitApp() RPC를 호출. 그때만 앱이 종료됨.
    */
   useEffect(() => {
     const onBackPress = () => {
-      if (canGoBack && webViewRef.current) {
-        webViewRef.current.goBack();
-        return true; // 이벤트 소비 — 앱 종료 막음
-      }
-      return false; // 기본 동작 허용 — 앱 종료
+      webViewRef.current?.injectJavaScript(`
+        window.dispatchEvent(new MessageEvent('message', {
+          data: JSON.stringify({ type: 'HARDWARE_BACK' })
+        }));
+        true;
+      `);
+      return true;
     };
     const subscription = BackHandler.addEventListener(
       'hardwareBackPress',
       onBackPress,
     );
     return () => subscription.remove();
-  }, [canGoBack]);
+  }, []);
+
 
   /**
-   * WebView 로드 전 주입할 JS 코드를 조합합니다.
+   * 웹 → 네이티브 RPC 메시지 핸들러.
    *
-   * initData 또는 insets 값이 변경될 때만 재계산합니다 (useMemo).
-   * 두 부분으로 구성됩니다:
-   *   1. 쿠키 주입 JS (buildCookieInjectionJS)
-   *   2. window.BarogagiApp 인터페이스 정의 JS (BRIDGE_INTERFACE_JS)
+   * RN_BRIDGE.md §7 RPC 통신 프로토콜.
    *
-   * initData가 null이면 아직 스토리지 로딩 중이므로 'true;'만 반환합니다.
-   * (injectedJavaScriptBeforeContentLoaded는 반드시 truthy 값으로 끝나야 함)
-   */
-  const injectedJSBeforeContent = useMemo(() => {
-    if (!initData) {
-      return 'true;';
-    }
-    const cookieJS = buildCookieInjectionJS({
-      safeAreaTop: insets.top,
-      safeAreaBottom: insets.bottom,
-      providerId: initData.providerId,
-      email: initData.email,
-      name: initData.name,
-      autoLogin: initData.autoLogin,
-    });
-    return cookieJS + '\n' + BRIDGE_INTERFACE_JS + '\ntrue;';
-  }, [initData, insets.top, insets.bottom]);
-
-  /**
-   * 웹 → 네이티브 메시지 수신 핸들러.
-   * 웹앱에서 window.BarogagiApp.xxx()를 호출하면 이 함수가 트리거됩니다.
+   * 요청 포맷: { id: number, method: string, payload: object }
+   * 응답 포맷: window.__bridgeResolve(id, ok, value)를 injectJavaScript로 호출
    *
-   * message 구조: { type: string, data: object }
-   * type은 BRIDGE_TYPES 상수값과 일치해야 합니다.
+   * 응답은 반드시 보내야 함. 누락 시 웹 측 Promise가 3초 후 timeout으로 reject됨.
    *
-   * useCallback으로 감싸 불필요한 재생성을 방지합니다.
+   * method 분기는 후속 커밋(§1 storage, §4 openExternal, §5 exitApp)에서 추가됨.
+   * 각 case는 자체적으로 respond(true, value)를 호출한 뒤 break.
    */
   const handleMessage = useCallback(async (event: WebViewMessageEvent) => {
+    let parsed: { id?: unknown; method?: unknown; payload?: Record<string, unknown> };
     try {
-      const message = JSON.parse(event.nativeEvent.data);
-
-      switch (message.type) {
-        /**
-         * [LOGIN] 웹 로그인 완료 후 사용자 정보를 앱 스토리지에 저장합니다.
-         * 다음 앱 실행 시 이 정보가 쿠키로 웹에 자동 전달됩니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.login(provider_id, email, name)
-         */
-        case BRIDGE_TYPES.LOGIN: {
-          const { provider_id, email, name } = message.data;
-          await StorageService.saveLoginInfo(provider_id, email, name);
-          break;
-        }
-
-        /**
-         * [LOGOUT] 앱 스토리지에서 사용자 정보를 초기화합니다.
-         * 웹의 세션/쿠키 정리는 웹앱에서 별도로 처리해야 합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.logout()
-         */
-        case BRIDGE_TYPES.LOGOUT: {
-          await StorageService.clearLoginInfo();
-          break;
-        }
-
-        /**
-         * [SNS_LOGIN] 네이티브 SNS SDK로 로그인을 처리합니다.
-         * 완료 후 window.snsLoginResult(type, provider_id, email, name)를 웹에 콜백합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.snsLogin('kakao' | 'naver' | 'google')
-         *
-         * TODO: 각 SNS SDK 패키지 설치 후 구현 필요
-         *   - 카카오: react-native-kakao-login
-         *   - 네이버: @react-native-seoul/naver-login
-         *   - 구글: @react-native-google-signin/google-signin
-         */
-        case BRIDGE_TYPES.SNS_LOGIN: {
-          const { type } = message.data;
-          console.log('[SNS_LOGIN] type:', type);
-          // SDK 연동 후 아래 패턴으로 결과를 웹에 전달하세요:
-          // webViewRef.current?.injectJavaScript(
-          //   `window.snsLoginResult && window.snsLoginResult(
-          //     '${type}', providerId, email, name
-          //   ); true;`
-          // );
-          break;
-        }
-
-        /**
-         * [UPDATE_FCM_TOKEN] Firebase에서 FCM 토큰을 발급받아 웹에 전달합니다.
-         * 완료 후 window.saveFcmToken(token)을 웹에 콜백합니다.
-         * 웹은 이 토큰을 서버에 등록해 푸시 알림 수신에 사용합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.updateFcmToken()
-         *
-         * TODO: @react-native-firebase/messaging 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.UPDATE_FCM_TOKEN: {
-          console.log('[UPDATE_FCM_TOKEN] Firebase SDK 연동 후 구현');
-          // SDK 연동 후 아래 패턴으로 결과를 웹에 전달하세요:
-          // const token = await messaging().getToken();
-          // webViewRef.current?.injectJavaScript(
-          //   `window.saveFcmToken && window.saveFcmToken('${token}'); true;`
-          // );
-          break;
-        }
-
-        /**
-         * [SUBSCRIBE_TOPIC] 특정 FCM 토픽을 구독합니다.
-         * 해당 토픽으로 발송된 푸시 알림을 수신할 수 있습니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.subscribeTopic('notice')
-         *
-         * TODO: @react-native-firebase/messaging 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.SUBSCRIBE_TOPIC: {
-          console.log('[SUBSCRIBE_TOPIC] topic:', message.data?.topic);
-          // await messaging().subscribeToTopic(message.data.topic);
-          break;
-        }
-
-        /**
-         * [UNSUBSCRIBE_TOPIC] FCM 토픽 구독을 해제합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.unsubscribeTopic('notice')
-         *
-         * TODO: @react-native-firebase/messaging 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.UNSUBSCRIBE_TOPIC: {
-          console.log('[UNSUBSCRIBE_TOPIC] topic:', message.data?.topic);
-          // await messaging().unsubscribeFromTopic(message.data.topic);
-          break;
-        }
-
-        /**
-         * [SAVE_DATA] 웹에서 전달한 key-value를 앱 스토리지에 저장합니다.
-         * 앱 내부 키와의 충돌 방지를 위해 'web_data_' 접두사가 붙습니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.saveData('myKey', 'myValue')
-         */
-        case BRIDGE_TYPES.SAVE_DATA: {
-          const { key, value } = message.data;
-          await StorageService.saveWebData(key, value);
-          break;
-        }
-
-        /**
-         * [GET_DATA] 앱 스토리지에서 데이터를 조회해 웹에 콜백으로 반환합니다.
-         * 결과는 window.getDataResult(key, data)로 전달됩니다.
-         * 값이 없으면 data에 null이 전달됩니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.getData('myKey')
-         * 웹 콜백 구현: window.getDataResult = function(key, data) { ... }
-         */
-        case BRIDGE_TYPES.GET_DATA: {
-          const { key } = message.data;
-          const value = await StorageService.getWebData(key);
-          webViewRef.current?.injectJavaScript(
-            `window.getDataResult && window.getDataResult(${JSON.stringify(
-              key,
-            )}, ${JSON.stringify(value)}); true;`,
-          );
-          break;
-        }
-
-        /**
-         * [DELETE_DATA] 앱 스토리지에서 특정 키의 데이터를 삭제합니다.
-         *
-         * 웹에서 호출: window.BarogagiApp.deleteData('myKey')
-         */
-        case BRIDGE_TYPES.DELETE_DATA: {
-          const { key } = message.data;
-          await StorageService.deleteWebData(key);
-          break;
-        }
-
-        /**
-         * [NAVIGATE] WebView 내부에서 열 수 없는 외부 URL을 기기 기본 브라우저로 엽니다.
-         * 예: 결제 페이지, 약관 링크, 외부 서비스 연결 등
-         *
-         * 웹에서 호출: window.sendToNative('NAVIGATE', { url: 'https://...' })
-         */
-        case BRIDGE_TYPES.NAVIGATE: {
-          if (message.data?.url) {
-            Linking.openURL(message.data.url);
-          }
-          break;
-        }
-
-        /**
-         * [SHARE] iOS/Android 네이티브 공유 시트를 엽니다.
-         * 사용자가 카카오톡, 메시지, 클립보드 등 원하는 앱으로 공유할 수 있습니다.
-         *
-         * 웹에서 호출: window.sendToNative('SHARE', { message: '...', title: '...' })
-         */
-        case BRIDGE_TYPES.SHARE: {
-          Share.share({
-            message: message.data?.message || '',
-            title: message.data?.title || '',
-          });
-          break;
-        }
-
-        /**
-         * [HAPTIC] 기기 햅틱(진동) 피드백을 트리거합니다.
-         * 버튼 클릭, 에러 알림 등에 물리적 피드백을 줄 때 사용합니다.
-         *
-         * 웹에서 호출: window.sendToNative('HAPTIC', { style: 'light' })
-         *
-         * TODO: react-native-haptic-feedback 설치 후 구현 필요
-         */
-        case BRIDGE_TYPES.HAPTIC: {
-          console.log('[HAPTIC] style:', message.data?.style);
-          break;
-        }
-
-        default:
-          console.log('[WebView] 알 수 없는 메시지 타입:', message);
-      }
-    } catch (error) {
-      console.warn('[WebView] 메시지 파싱 실패:', error);
+      parsed = JSON.parse(event.nativeEvent.data);
+    } catch (e) {
+      console.warn('[bridge] 메시지 파싱 실패:', e);
+      return;
     }
+
+    const { id, method, payload } = parsed;
+    // RN→웹 dispatch가 echo로 돌아오는 케이스(HARDWARE_BACK 등) 방어
+    if (typeof id !== 'number' || typeof method !== 'string') return;
+
+    const respond = (ok: boolean, value: unknown) => {
+      webViewRef.current?.injectJavaScript(
+        `window.__bridgeResolve && window.__bridgeResolve(${id}, ${ok}, ${JSON.stringify(
+          value,
+        )}); true;`,
+      );
+    };
+
+    try {
+      switch (method) {
+        case 'getData': {
+          const p = (payload ?? {}) as { ns?: unknown; key?: unknown };
+          if (!isBridgeNamespace(p.ns) || typeof p.key !== 'string') {
+            throw new Error('Invalid getData payload');
+          }
+          const value = await storageGet(p.ns, p.key);
+          respond(true, value);
+          break;
+        }
+        case 'saveData': {
+          const p = (payload ?? {}) as {
+            ns?: unknown;
+            key?: unknown;
+            value?: unknown;
+          };
+          if (
+            !isBridgeNamespace(p.ns) ||
+            typeof p.key !== 'string' ||
+            typeof p.value !== 'string'
+          ) {
+            throw new Error('Invalid saveData payload');
+          }
+          await storageSet(p.ns, p.key, p.value);
+          respond(true, null);
+          break;
+        }
+        case 'deleteData': {
+          const p = (payload ?? {}) as { ns?: unknown; key?: unknown };
+          if (!isBridgeNamespace(p.ns) || typeof p.key !== 'string') {
+            throw new Error('Invalid deleteData payload');
+          }
+          await storageDelete(p.ns, p.key);
+          respond(true, null);
+          break;
+        }
+        case 'openExternal': {
+          const p = (payload ?? {}) as { url?: unknown };
+          if (typeof p.url !== 'string') {
+            throw new Error('Invalid openExternal payload');
+          }
+          await Linking.openURL(p.url);
+          respond(true, null);
+          break;
+        }
+        case 'exitApp': {
+          // 응답을 먼저 보내야 웹 측 Promise가 timeout 없이 resolve 됨
+          respond(true, null);
+          BackHandler.exitApp();
+          break;
+        }
+        default:
+          throw new Error(`Unknown method: ${method}`);
+      }
+    } catch (e) {
+      respond(false, String(e));
+    }
+  }, []);
+
+  /**
+   * §4 — 외부 호스트로의 네비게이션을 시스템 브라우저로 위임.
+   *
+   * APP_HOST(=WEB_APP_URL의 호스트명)와 about: 스킴만 WebView 내부 로딩 허용.
+   * 외부 호스트는 Linking.openURL로 위임하고 WebView 내부 로딩은 차단.
+   */
+  const shouldAllowNavigation = useCallback((req: { url: string }): boolean => {
+    if (req.url.startsWith('about:')) return true;
+    try {
+      const u = new URL(req.url);
+      if (u.hostname === APP_HOST) return true;
+    } catch {
+      return false;
+    }
+    Linking.openURL(req.url);
+    return false;
   }, []);
 
   /**
@@ -366,35 +236,20 @@ const WebViewScreen = () => {
     return <ErrorFallback onRetry={handleRetry} />;
   }
 
-  // AsyncStorage 로딩 완료 전 — 쿠키 주입 준비가 안 됐으므로 WebView 렌더링 보류
-  if (!initData) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
-      </View>
-    );
-  }
-
   return (
-    <View
-      style={[
-        styles.container,
-        {
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom,
-        },
-      ]}
-    >
+    <View style={styles.container}>
       <WebView
         ref={webViewRef}
         source={{ uri: WEB_APP_URL }}
         style={styles.webView}
-        // WebView 내 페이지 이동 시 canGoBack 상태를 업데이트합니다
-        onNavigationStateChange={navState => setCanGoBack(navState.canGoBack)}
         // iOS 스와이프 뒤로가기 제스처 활성화
         allowsBackForwardNavigationGestures={true}
         // localStorage, sessionStorage 활성화 (Zustand persist, JWT 저장에 필요)
         domStorageEnabled={true}
+        // OAuth/결제 위젯이 서드파티 쿠키에 의존하는 경우 대비 (Android 기본 false)
+        thirdPartyCookiesEnabled={true}
+        // window.open('_blank') 호출 시 새 WebView 생성을 막아 링크 무반응 방지
+        setSupportMultipleWindows={false}
         // iOS 스크롤 바운스 효과 제거
         bounces={false}
         // Android 오버스크롤 효과 제거
@@ -409,12 +264,14 @@ const WebViewScreen = () => {
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"
         /**
-         * 페이지 파싱 전 실행 — 쿠키 주입 + window.BarogagiApp 등록
-         * 이 타이밍에 실행해야 웹앱 React 초기화 시점에 쿠키와 인터페이스가 준비됩니다.
+         * 페이지 파싱 전 RPC 인터페이스(window.BarogagiApp + __bridgeResolve)를 등록.
+         * BeforeContentLoaded여야 웹앱 React 초기화 직전에 window.BarogagiApp이 준비됨.
          */
-        injectedJavaScriptBeforeContentLoaded={injectedJSBeforeContent}
+        injectedJavaScriptBeforeContentLoaded={BRIDGE_INTERFACE_JS}
         // 웹 → 네이티브 메시지 수신
         onMessage={handleMessage}
+        // 외부 호스트 네비게이션 차단 (§4)
+        onShouldStartLoadWithRequest={shouldAllowNavigation}
         /**
          * SPA 로딩 스피너 처리:
          * - initialLoaded가 false인 최초 1회만 스피너를 표시합니다.
@@ -429,6 +286,8 @@ const WebViewScreen = () => {
         onLoadEnd={() => {
           setIsLoading(false);
           setInitialLoaded(true);
+          // 새로고침/SPA 라우팅 시 CSS 변수 휘발 방지를 위해 재주입 (§6)
+          injectSafeAreaVars();
         }}
         // 네트워크 오류, 페이지 없음 등 로드 실패 시 에러 폴백으로 전환
         onError={() => setHasError(true)}
@@ -446,11 +305,6 @@ const WebViewScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   webView: {
     flex: 1,

@@ -73,7 +73,7 @@ window.appPlatform    // 'ios' 또는 'android'
 |------|-----|
 | 개발 (Android 에뮬레이터) | `http://10.0.2.2:8080` |
 | 개발 (iOS 시뮬레이터) | `http://localhost:8080` |
-| 프로덕션 | `https://barogagi.xyz/auth` |
+| 프로덕션 | `https://fitpl.xyz/auth` |
 
 > 개발 시 [barogagi-front](https://github.com/T-BluePot/barogagi-front)의 Vite 개발 서버(`localhost:8080`)가 실행 중이어야 합니다.
 

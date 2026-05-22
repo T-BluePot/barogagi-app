@@ -1,4 +1,4 @@
-package com.barogagiapp
+package com.bluehp.fitpl
 
 import android.app.Application
 import com.facebook.react.PackageList
