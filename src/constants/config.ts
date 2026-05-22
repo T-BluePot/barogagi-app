@@ -18,4 +18,4 @@ export const WEB_APP_URL = __DEV__
 export const APP_HOST = new URL(WEB_APP_URL).hostname;
 
 export const APP_NAME = 'fitpl';
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
