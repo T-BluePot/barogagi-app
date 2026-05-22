@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BootSplash from 'react-native-bootsplash';
 import ErrorFallback from '../components/ErrorFallback';
 import { WEB_APP_URL, APP_NAME, APP_HOST } from '../constants/config';
 import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
@@ -285,9 +286,16 @@ const WebViewScreen = () => {
         }}
         onLoadEnd={() => {
           setIsLoading(false);
-          setInitialLoaded(true);
           // 새로고침/SPA 라우팅 시 CSS 변수 휘발 방지를 위해 재주입 (§6)
           injectSafeAreaVars();
+          // 최초 콘텐츠 로드 완료 시점에만 네이티브 스플래시 dismiss.
+          // 너무 일찍 hide하면 WebView 백그라운드(흰 화면)가 보이므로 onLoadEnd가 적정 타이밍.
+          if (!initialLoaded) {
+            setInitialLoaded(true);
+            BootSplash.hide({ fade: true }).catch(() => {
+              // already hidden 또는 재시도 호출 등은 무시
+            });
+          }
         }}
         // 네트워크 오류, 페이지 없음 등 로드 실패 시 에러 폴백으로 전환
         onError={() => setHasError(true)}
