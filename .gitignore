@@ -89,5 +89,9 @@ android/gradle.properties
 android/app/google-services.json
 ios/GoogleService-Info.plist
 
+# 릴리스 서명 키스토어 (로컬 보관, 절대 커밋 금지 — debug.keystore는 예외로 추적)
+*.jks
+android/app/upload.keystore
+
 # 개인 빌드 가이드 (Claude Code 참조용)
 docs/RELEASE.md
