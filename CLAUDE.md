@@ -1,6 +1,7 @@
 # CLAUDE.md
 
 ## 프로젝트 개요
+
 barogagi-app은 React Native WebView 기반의 웹앱 래퍼.
 기존 웹 프로젝트(barogagi-front)를 네이티브 앱으로 감싸는 역할.
 
@@ -8,12 +9,14 @@ barogagi-app은 React Native WebView 기반의 웹앱 래퍼.
 브릿지 명세 원본은 `RN_BRIDGE.md` 참고.
 
 ## 핵심 정보
+
 - **웹 프로젝트**: T-BluePot/barogagi-front (별도 레포)
 - **프로덕션 URL**: https://fitpl.xyz/auth
 - **개발 서버**: localhost:8080 (barogagi-front의 Vite dev server)
 - **앱 식별자**: BarogagiApp (User-Agent에 추가됨)
 
 ## 기술 스택
+
 - React Native 0.84
 - react-native-webview
 - react-native-mmkv — persistent storage
@@ -22,11 +25,13 @@ barogagi-app은 React Native WebView 기반의 웹앱 래퍼.
 - TypeScript
 
 ## 주요 명령어
+
 - `npx react-native run-android` — Android 에뮬레이터 실행
 - `npx react-native run-ios` — iOS 시뮬레이터 실행 (현 단계 비대상)
 - `cd ios && pod install` — iOS 의존성 설치
 
 ## 구조
+
 ```
 src/
   constants/
@@ -47,15 +52,16 @@ src/
 `ReactNativeWebView.postMessage`. 응답은 `window.__bridgeResolve(id, ok, value)`로 회신.
 3초 내 응답 없으면 웹 측 Promise가 timeout으로 reject.
 
-| Method | 시그니처 | 설명 |
-|---|---|---|
-| `getData` | `(ns, key) => Promise<string \| null>` | namespace에서 값 조회 |
-| `saveData` | `(ns, key, value) => Promise<void>` | namespace에 값 저장 |
-| `deleteData` | `(ns, key) => Promise<void>` | namespace에서 값 삭제 |
-| `openExternal` | `(url) => Promise<void>` | 외부 URL을 시스템 브라우저로 |
-| `exitApp` | `() => Promise<void>` | 앱 종료 (백 처리 후 웹이 호출) |
+| Method         | 시그니처                               | 설명                           |
+| -------------- | -------------------------------------- | ------------------------------ |
+| `getData`      | `(ns, key) => Promise<string \| null>` | namespace에서 값 조회          |
+| `saveData`     | `(ns, key, value) => Promise<void>`    | namespace에 값 저장            |
+| `deleteData`   | `(ns, key) => Promise<void>`           | namespace에서 값 삭제          |
+| `openExternal` | `(url) => Promise<void>`               | 외부 URL을 시스템 브라우저로   |
+| `exitApp`      | `() => Promise<void>`                  | 앱 종료 (백 처리 후 웹이 호출) |
 
 ### namespace 종류 (RN_BRIDGE.md §1)
+
 - `secure` — EncryptedSharedPreferences. 인증 토큰 4종이 들어감
 - `persistent` — MMKV. 영속 데이터 (최근 검색 등)
 - `session` — in-memory `Map`. **앱 종료 시 사라져야 하는 draft 전용**
@@ -71,12 +77,14 @@ RN이 `BackHandler.exitApp()` 실행.
 ## Safe Area Inset
 
 `useSafeAreaInsets`로 측정한 inset을 CSS 변수로 inject:
-```
+
+```js
 document.documentElement.style.setProperty('--sai-top',    '<n>px');
 document.documentElement.style.setProperty('--sai-bottom', '<n>px');
 document.documentElement.style.setProperty('--sai-left',   '<n>px');
 document.documentElement.style.setProperty('--sai-right',  '<n>px');
 ```
+
 inset 변경 시(회전) + `onLoadEnd`에서 재주입.
 웹은 `.pt-safe / .pb-safe / .pl-safe / .pr-safe` utility class로 소비.
 
@@ -87,11 +95,13 @@ inset 변경 시(회전) + `onLoadEnd`에서 재주입.
 웹 측 `openExternal` RPC 호출도 동일 경로(`Linking.openURL`)로 처리.
 
 ## 네이밍 컨벤션
+
 - 파일명: PascalCase (WebViewScreen.tsx)
 - 변수명: camelCase
 - 상수명: UPPER_SNAKE_CASE
 
 ## 커밋 컨벤션
+
 - feat: 새 기능 추가
 - fix: 버그 수정
 - chore: 빌드·설정·패키지 관리
@@ -100,4 +110,9 @@ inset 변경 시(회전) + `onLoadEnd`에서 재주입.
 - test: 테스트 추가·수정
 
 ## 브랜치 전략
-release ← main ← dev ← feat/*
+
+release ← main ← dev ← feat/\*
+
+## 릴리스 빌드
+
+Android release 빌드 및 버전 업데이트 절차는 docs/RELEASE.md 참조.

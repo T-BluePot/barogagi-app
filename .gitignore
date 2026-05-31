@@ -84,3 +84,6 @@ yarn-error.log
 
 # Local gradle properties with secrets
 android/gradle.properties
+
+# 개인 빌드 가이드 (Claude Code 참조용)
+docs/RELEASE.md
