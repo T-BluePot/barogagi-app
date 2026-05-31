@@ -78,7 +78,7 @@ RN이 `BackHandler.exitApp()` 실행.
 
 `useSafeAreaInsets`로 측정한 inset을 CSS 변수로 inject:
 
-```
+```js
 document.documentElement.style.setProperty('--sai-top',    '<n>px');
 document.documentElement.style.setProperty('--sai-bottom', '<n>px');
 document.documentElement.style.setProperty('--sai-left',   '<n>px');
