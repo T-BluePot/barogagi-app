@@ -292,8 +292,10 @@ const WebViewScreen = () => {
           // 너무 일찍 hide하면 WebView 백그라운드(흰 화면)가 보이므로 onLoadEnd가 적정 타이밍.
           if (!initialLoaded) {
             setInitialLoaded(true);
-            BootSplash.hide({ fade: true }).catch(() => {
-              // already hidden 또는 재시도 호출 등은 무시
+            BootSplash.hide({ fade: true }).catch((e: unknown) => {
+              // Android 네이티브 모듈은 hide를 항상 resolve하므로(이미 숨겨진
+              // 상태도 resolve) reject는 예기치 않은 상황. 삼키지 않고 로깅.
+              console.warn('[bootsplash] hide 실패:', e);
             });
           }
         }}
