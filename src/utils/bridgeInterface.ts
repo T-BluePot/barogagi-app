@@ -58,6 +58,14 @@ export const BRIDGE_INTERFACE_JS = `
     exitApp: function() {
       return rpc('exitApp', {});
     },
+    // FCM 토큰 발급(네이티브). 실패/거부/미지원 시 null. 웹이 로그인 직후 호출.
+    getFcmToken: function() {
+      return rpc('getFcmToken', {});
+    },
+    // 푸시 토큰 등록용 deviceType('ANDROID' | 'IOS'). 웹이 서버 등록 시 사용.
+    getDeviceType: function() {
+      return rpc('getDeviceType', {});
+    },
   };
 })();
 true;
