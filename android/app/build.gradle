@@ -1,6 +1,14 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// FCM: google-services.json(앱 모듈 루트)을 읽어 Firebase 초기화 (@react-native-firebase)
+// 이 파일은 보안상 gitignore 대상이라 로컬/CI에서 주입된다. 누락 시 google-services
+// 플러그인은 구성(configuration) 단계에서 즉시 빌드를 실패시키므로, 파일이 있을 때만 적용한다.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.warn("[fitpl] google-services.json이 없어 com.google.gms.google-services 플러그인을 건너뜁니다. FCM 빌드 전 google-services.json을 android/app/에 추가하세요.")
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -82,8 +90,8 @@ android {
         applicationId "com.bluehp.fitpl"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1.0"
+        versionCode 4
+        versionName "1.2.1"
     }
     signingConfigs {
         debug {

@@ -7,7 +7,8 @@
  * - 웹 → 네이티브: window.BarogagiApp.method(...) → postMessage → handleMessage
  *   응답: window.__bridgeResolve(id, ok, value) (§7)
  * - 네이티브 → 웹: webViewRef.injectJavaScript(...)
- * - 5개 RPC method: getData / saveData / deleteData / openExternal / exitApp
+ * - RPC method: getData / saveData / deleteData / openExternal / exitApp
+ *   + getFcmToken / getDeviceType (FCM)
  * - 하드웨어 백: HARDWARE_BACK 메시지 dispatch, 웹이 결정 (§5)
  * - safe area: --sai-* CSS 변수로 inject (§6)
  */
@@ -33,6 +34,7 @@ import {
   storageSet,
   warmupSecureStorage,
 } from '../services/bridgeStorage';
+import { getDeviceType, getFcmToken, initFcm } from '../services/fcm';
 
 const WebViewScreen = () => {
   /** WebView 인스턴스 참조 — injectJavaScript()/reload() 등 직접 제어에 사용 */
@@ -59,6 +61,15 @@ const WebViewScreen = () => {
    */
   useEffect(() => {
     warmupSecureStorage();
+  }, []);
+
+  /**
+   * FCM 초기화 — 알림 권한 요청 + 토큰 캐시 예열 + 갱신/포그라운드 구독.
+   * 언마운트 시 onTokenRefresh/onMessage 구독 해제.
+   */
+  useEffect(() => {
+    const unsubscribe = initFcm();
+    return unsubscribe;
   }, []);
 
   /**
@@ -195,6 +206,16 @@ const WebViewScreen = () => {
           // 응답을 먼저 보내야 웹 측 Promise가 timeout 없이 resolve 됨
           respond(true, null);
           BackHandler.exitApp();
+          break;
+        }
+        case 'getFcmToken': {
+          // 발급 실패/권한 거부 시에도 throw 없이 null 반환(브릿지 계약)
+          const token = await getFcmToken();
+          respond(true, token);
+          break;
+        }
+        case 'getDeviceType': {
+          respond(true, getDeviceType());
           break;
         }
         default:

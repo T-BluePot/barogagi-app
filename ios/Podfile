@@ -8,6 +8,9 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
+# FCM: use_frameworks 미사용 시 Firebase 정적 프레임워크로 링크 (@react-native-firebase 권장)
+$RNFirebaseAsStaticFramework = true
+
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
   Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
