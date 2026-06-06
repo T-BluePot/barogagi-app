@@ -93,5 +93,8 @@ ios/GoogleService-Info.plist
 *.jks
 android/app/upload.keystore
 
+# 서명 비밀번호가 든 로컬 백업 — 절대 커밋 금지
+*.properties.backup
+
 # 개인 빌드 가이드 (Claude Code 참조용)
 docs/RELEASE.md
