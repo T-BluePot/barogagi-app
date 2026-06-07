@@ -26,6 +26,18 @@
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
+      <!--
+        OAuth 콜백 딥링크(barogagiapp://oauth/...) 수신.
+        Custom Tab OAuth(react-native-inappbrowser-reborn) 후 백엔드가 이 scheme으로
+        302하면 OS가 이 intent-filter로 앱(singleTask)을 onNewIntent로 복귀시키고,
+        RN Linking이 openAuth로 콜백 URL을 전달한다. config.ts OAUTH_CALLBACK과 일치.
+      -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="barogagiapp" android:host="oauth" />
+      </intent-filter>
     </activity>
   </application>
 </manifest>

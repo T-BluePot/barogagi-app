@@ -6,6 +6,10 @@ buildscript {
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.1.20"
+        // react-native-inappbrowser-reborn: androidx.browser 버전 고정.
+        // 미지정 시 동적 범위로 해석돼 'androidx.browser.customtabs does not exist'
+        // 빌드 깨짐(proyecto26/react-native-inappbrowser#472)이 발생할 수 있어 1.8.0으로 핀.
+        androidXBrowser = "1.8.0"
     }
     repositories {
         google()

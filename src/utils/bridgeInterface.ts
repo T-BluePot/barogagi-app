@@ -7,6 +7,8 @@
  * - 웹 → RN: window.BarogagiApp.method(...) → rpc()가 {id, method, payload}로 직렬화해 postMessage
  * - RN → 웹: window.__bridgeResolve(id, ok, value)로 Promise resolve/reject
  * - 3초 내 응답 없으면 'bridge timeout' 에러로 reject
+ * - OAuth처럼 외부 브라우저 왕복(사용자 상호작용)이 끼는 호출은 rpcNoTimeout()으로
+ *   타임아웃을 적용하지 않음. RN이 콜백/취소 시점에 __bridgeResolve로 회신.
  */
 
 export const BRIDGE_INTERFACE_JS = `
@@ -14,7 +16,7 @@ export const BRIDGE_INTERFACE_JS = `
   var pending = new Map();
   var nextId = 1;
 
-  function rpc(method, payload) {
+  function rpc(method, payload, timeoutMs) {
     return new Promise(function(resolve, reject) {
       var id = nextId++;
       pending.set(id, { resolve: resolve, reject: reject });
@@ -25,13 +27,22 @@ export const BRIDGE_INTERFACE_JS = `
         reject(new Error('ReactNativeWebView not available'));
         return;
       }
-      setTimeout(function() {
-        if (pending.has(id)) {
-          pending.delete(id);
-          reject(new Error('bridge timeout'));
-        }
-      }, 3000);
+      // timeoutMs <= 0 이면 타임아웃 미적용(OAuth 등 외부 브라우저 왕복). 기본 3초.
+      var t = typeof timeoutMs === 'number' ? timeoutMs : 3000;
+      if (t > 0) {
+        setTimeout(function() {
+          if (pending.has(id)) {
+            pending.delete(id);
+            reject(new Error('bridge timeout'));
+          }
+        }, t);
+      }
     });
+  }
+
+  // 외부 브라우저 로그인 등 응답이 늦는 호출용. 타임아웃 없이 RN 회신을 무기한 대기.
+  function rpcNoTimeout(method, payload) {
+    return rpc(method, payload, 0);
   }
 
   window.__bridgeResolve = function(id, ok, value) {
@@ -54,6 +65,12 @@ export const BRIDGE_INTERFACE_JS = `
     },
     openExternal: function(url) {
       return rpc('openExternal', { url: url });
+    },
+    // OAuth 로그인: authorizeUrl을 Custom Tab으로 열고 백엔드 콜백까지 대기(타임아웃 없음).
+    // resolve 값은 콜백 URL 문자열 → 웹이 new URL(url).searchParams로 토큰 파싱.
+    // 사용자가 탭을 닫으면(cancel/dismiss) reject → 웹은 모달 없이 무시.
+    loginWithOAuth: function(url) {
+      return rpcNoTimeout('loginWithOAuth', { url: url });
     },
     exitApp: function() {
       return rpc('exitApp', {});
