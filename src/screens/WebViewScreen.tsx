@@ -8,7 +8,7 @@
  *   응답: window.__bridgeResolve(id, ok, value) (§7)
  * - 네이티브 → 웹: webViewRef.injectJavaScript(...)
  * - RPC method: getData / saveData / deleteData / openExternal / exitApp
- *   + getFcmToken / getDeviceType (FCM)
+ *   + getFcmToken / getDeviceType (FCM) + loginWithOAuth (Custom Tab OAuth)
  * - 하드웨어 백: HARDWARE_BACK 메시지 dispatch, 웹이 결정 (§5)
  * - safe area: --sai-* CSS 변수로 inject (§6)
  */
@@ -24,8 +24,9 @@ import {
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BootSplash from 'react-native-bootsplash';
+import { openAuth, isAvailable } from 'react-native-inappbrowser-nitro';
 import ErrorFallback from '../components/ErrorFallback';
-import { WEB_APP_URL, APP_NAME, APP_HOST } from '../constants/config';
+import { WEB_APP_URL, APP_NAME, APP_HOST, OAUTH_CALLBACK } from '../constants/config';
 import { BRIDGE_INTERFACE_JS } from '../utils/bridgeInterface';
 import {
   isBridgeNamespace,
@@ -202,6 +203,33 @@ const WebViewScreen = () => {
           respond(true, null);
           break;
         }
+        case 'loginWithOAuth': {
+          // 소셜 로그인 authorizeUrl을 Custom Tab으로 열고, 백엔드가 OAUTH_CALLBACK
+          // (custom scheme)으로 302하면 그 콜백 URL 전체를 웹에 그대로 회신.
+          // Linking.openURL(풀 브라우저: 상단 주소창 + 하단 네비바) 대신 Custom Tab을 써서
+          // 하단 네비바를 없애고 상단은 슬림바(스크롤 시 숨김)로 축소 → 브라우저 UI 노출 최소화.
+          // 완료 후엔 메인 WebView(fitpl.xyz)로 복귀하므로 풀 브라우저에 머물지 않음.
+          const p = (payload ?? {}) as { url?: unknown };
+          if (typeof p.url !== 'string') {
+            throw new Error('Invalid loginWithOAuth payload');
+          }
+          // Custom Tab 지원 브라우저가 없으면 openAuth가 실패하므로 사전 차단.
+          if (!(await isAvailable())) {
+            throw new Error('Custom Tab unavailable');
+          }
+          const res = await openAuth(p.url, OAUTH_CALLBACK, {
+            ephemeralWebSession: false, // 카카오/네이버 SSO 쿠키 재사용
+            enableUrlBarHiding: true,
+            forceCloseOnRedirection: true, // 콜백 도달 시 탭 자동 닫힘
+          });
+          if (res.type === 'success' && res.url) {
+            respond(true, res.url);
+          } else {
+            // 사용자가 탭을 닫음(cancel/dismiss) → 웹은 모달 없이 무시
+            respond(false, 'oauth_cancelled');
+          }
+          break;
+        }
         case 'exitApp': {
           // 응답을 먼저 보내야 웹 측 Promise가 timeout 없이 resolve 됨
           respond(true, null);
@@ -229,14 +257,16 @@ const WebViewScreen = () => {
   /**
    * §4 — 외부 호스트로의 네비게이션을 시스템 브라우저로 위임.
    *
-   * APP_HOST(=WEB_APP_URL의 호스트명)와 about: 스킴만 WebView 내부 로딩 허용.
-   * 외부 호스트는 Linking.openURL로 위임하고 WebView 내부 로딩은 차단.
+   * APP_HOST(=WEB_APP_URL의 호스트명) 및 그 서브도메인(*.APP_HOST), about: 스킴만
+   * WebView 내부 로딩 허용. 외부 호스트는 Linking.openURL로 위임하고 내부 로딩은 차단.
    */
   const shouldAllowNavigation = useCallback((req: { url: string }): boolean => {
     if (req.url.startsWith('about:')) return true;
     try {
-      const u = new URL(req.url);
-      if (u.hostname === APP_HOST) return true;
+      const host = new URL(req.url).hostname;
+      // 정확 매치 또는 서브도메인(www.fitpl.xyz 등) 허용. 앞 점(.)으로
+      // 'evilfitpl.xyz' 같은 접미사 위장은 배제됨.
+      if (host === APP_HOST || host.endsWith('.' + APP_HOST)) return true;
     } catch {
       return false;
     }

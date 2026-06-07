@@ -8,3 +8,7 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# react-native-inappbrowser-nitro (Nitro Module) — release(R8)에서 네이티브 Hybrid
+# 클래스가 stripping되면 'Couldn't find class HybridInappbrowserNitro'로 크래시.
+-keep class com.inappbrowsernitro.** { *; }
