@@ -19,7 +19,9 @@
     "react-native-bootsplash": "^7.3.1",
     "react-native-dotenv": "^3.4.11",
     "react-native-encrypted-storage": "^4.0.3",
+    "react-native-inappbrowser-nitro": "^3.0.1",
     "react-native-mmkv": "^3.3.3",
+    "react-native-nitro-modules": "^0.35.9",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-webview": "^13.16.1"
   },
