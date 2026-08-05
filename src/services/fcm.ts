@@ -133,6 +133,10 @@ export const displayNotification = async (
     data,
     android: {
       channelId: DEFAULT_CHANNEL_ID,
+      // 미지정 시 ic_launcher로 폴백하는데, 상태바는 알파 채널만 읽어 단색
+      // 실루엣으로 칠하므로 불투명한 런처 아이콘은 흰 사각형으로 뭉개진다.
+      smallIcon: 'ic_notification',
+      color: '#ff8a65',
       pressAction: { id: 'default' }, // 탭 시 앱 실행
     },
   });
