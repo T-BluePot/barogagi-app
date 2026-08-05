@@ -90,8 +90,8 @@ android {
         applicationId "com.bluehp.fitpl"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.2.1"
+        versionCode 6
+        versionName "2.0.0"
     }
     signingConfigs {
         debug {
