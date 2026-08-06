@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
   <uses-permission android:name="android.permission.CAMERA" />
@@ -22,9 +23,14 @@
     <meta-data
       android:name="com.google.firebase.messaging.default_notification_icon"
       android:resource="@drawable/ic_notification" />
+    <!--
+      react-native-firebase_messaging가 이 키를 @color/white로 이미 선언하므로
+      tools:replace로 우선권을 명시해야 매니페스트 병합이 통과한다.
+    -->
     <meta-data
       android:name="com.google.firebase.messaging.default_notification_color"
-      android:resource="@color/notification_color" />
+      android:resource="@color/notification_color"
+      tools:replace="android:resource" />
     <activity
       android:name=".MainActivity"
       android:label="@string/app_name"
