@@ -376,8 +376,14 @@ const WebViewScreen = () => {
         scalesPageToFit={false}
         // User-Agent에 'BarogagiApp'을 추가해 웹앱이 앱 환경임을 인식할 수 있게 합니다
         applicationNameForUserAgent={APP_NAME}
-        // https, http URL만 허용 (javascript:, data: 등의 스킴 차단)
-        originWhitelist={['https://*', 'http://*']}
+        /**
+         * 여기에 없는 스킴은 react-native-webview 내부에서 canOpenURL/openURL로
+         * 처리되고 onShouldStartLoadWithRequest가 호출되지 않는다(WebViewShared).
+         * intent://는 canOpenURL이 false를 반환해 조용히 버려지므로, 우리
+         * shouldAllowNavigation이 직접 처리하도록 화이트리스트에 포함시킨다.
+         * 실제 로딩 허용 여부는 shouldAllowNavigation에서 호스트로 판정한다.
+         */
+        originWhitelist={['https://*', 'http://*', 'intent://*']}
         // 페이지 캐시 활성화 — 재방문 시 로딩 속도 향상
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"
