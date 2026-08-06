@@ -37,6 +37,56 @@ import {
 } from '../services/bridgeStorage';
 import { getDeviceType, getFcmToken, initFcm } from '../services/fcm';
 
+/**
+ * Android intent:// 스킴을 처리한다.
+ *
+ * RN Android의 LinkingModule은 내부적으로 `new Intent(ACTION_VIEW, Uri.parse(url))`를
+ * 쓰는데, intent://는 `Intent.parseUri(url, URI_INTENT_SCHEME)`로 파싱해야 하는
+ * 형식이라 Uri.parse로는 처리할 액티비티가 없어 실패한다.
+ * 카카오 JS SDK가 Android에서 공유 시 이 스킴으로 이동하므로 별도 분기가 필요하다.
+ *
+ * intent://<body>#Intent;scheme=<s>;package=<p>;S.browser_fallback_url=<url>;end;
+ * → scheme을 뽑아 `<s>://<body>` 평문 스킴으로 되돌려 연다.
+ *
+ * 실패 시 fallback URL → 스토어 순으로 내려간다.
+ */
+const openIntentUrl = async (url: string): Promise<void> => {
+  const body = url.slice('intent://'.length).split('#Intent')[0];
+  const scheme = url.match(/;scheme=([^;]+)/)?.[1];
+  const fallback = url.match(/;S\.browser_fallback_url=([^;]+)/)?.[1];
+  const pkg = url.match(/;package=([^;]+)/)?.[1];
+
+  if (scheme) {
+    try {
+      await Linking.openURL(`${scheme}://${body}`);
+      return;
+    } catch (e) {
+      // 대상 앱(카카오톡 등) 미설치로 추정. 아래 폴백으로 계속 진행.
+      console.warn('[nav] 평문 스킴 실패:', scheme, e);
+    }
+  }
+
+  if (fallback) {
+    try {
+      await Linking.openURL(decodeURIComponent(fallback));
+      return;
+    } catch (e) {
+      console.warn('[nav] fallback URL 실패:', e);
+    }
+  }
+
+  if (pkg) {
+    try {
+      await Linking.openURL(`market://details?id=${pkg}`);
+      return;
+    } catch (e) {
+      console.warn('[nav] 스토어 유도 실패:', e);
+    }
+  }
+
+  console.warn('[nav] intent 처리 전부 실패:', url);
+};
+
 const WebViewScreen = () => {
   /** WebView 인스턴스 참조 — injectJavaScript()/reload() 등 직접 제어에 사용 */
   const webViewRef = useRef<WebView>(null);
@@ -263,6 +313,17 @@ const WebViewScreen = () => {
    */
   const shouldAllowNavigation = useCallback((req: { url: string }): boolean => {
     if (req.url.startsWith('about:')) return true;
+
+    // intent://는 일반 openURL이 처리하지 못하므로 호스트 판정보다 먼저 분기한다.
+    // (intent://send?... 는 new URL()에서 hostname이 'send'로 잡혀 그냥 두면
+    //  외부 호스트로 오인돼 openURL로 넘어가고, 거기서 조용히 실패한다.)
+    if (req.url.startsWith('intent://')) {
+      openIntentUrl(req.url).catch(e =>
+        console.warn('[nav] intent 처리 실패:', req.url, e),
+      );
+      return false;
+    }
+
     try {
       const host = new URL(req.url).hostname;
       // 정확 매치 또는 서브도메인(www.fitpl.xyz 등) 허용. 앞 점(.)으로
@@ -271,7 +332,11 @@ const WebViewScreen = () => {
     } catch {
       return false;
     }
-    Linking.openURL(req.url);
+
+    // 실패를 삼키면 원인 추적이 불가능해진다(카카오 공유 무반응 건). 반드시 로깅.
+    Linking.openURL(req.url).catch(e =>
+      console.warn('[nav] openURL 실패:', req.url, e),
+    );
     return false;
   }, []);
 
