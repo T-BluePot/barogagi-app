@@ -30,6 +30,12 @@ export type DeviceType = 'ANDROID' | 'IOS';
 /** Android notifee 기본 알림 채널 ID. 백그라운드 핸들러(index.js)와 공유. */
 export const DEFAULT_CHANNEL_ID = 'default';
 
+/** 상태바 알림 아이콘(drawable). AndroidManifest의 default_notification_icon과 동일. */
+const NOTIFICATION_ICON = 'ic_notification';
+
+/** 알림 트레이 강조색. res/values/notification_color.xml과 동일 값. */
+const NOTIFICATION_COLOR = '#ff8a65';
+
 /** 토큰 캐시 전용 MMKV. bridgeStorage의 persistent와 분리해 관심사 격리. */
 const fcmStore = new MMKV({ id: 'barogagi-fcm' });
 const TOKEN_KEY = 'fcmToken';
@@ -127,19 +133,35 @@ export const displayNotification = async (
   if (!notification?.title && !notification?.body) return;
 
   await ensureAndroidChannel();
-  await notifee.displayNotification({
+
+  const base = {
     title: notification?.title,
     body: notification?.body,
     data,
     android: {
       channelId: DEFAULT_CHANNEL_ID,
-      // 미지정 시 ic_launcher로 폴백하는데, 상태바는 알파 채널만 읽어 단색
-      // 실루엣으로 칠하므로 불투명한 런처 아이콘은 흰 사각형으로 뭉개진다.
-      smallIcon: 'ic_notification',
-      color: '#ff8a65',
       pressAction: { id: 'default' }, // 탭 시 앱 실행
     },
-  });
+  };
+
+  try {
+    await notifee.displayNotification({
+      ...base,
+      android: {
+        ...base.android,
+        // 미지정 시 ic_launcher로 폴백하는데, 상태바는 알파 채널만 읽어 단색
+        // 실루엣으로 칠하므로 불투명한 런처 아이콘은 흰 사각형으로 뭉개진다.
+        smallIcon: NOTIFICATION_ICON,
+        color: NOTIFICATION_COLOR,
+      },
+    });
+  } catch (e) {
+    // smallIcon 리소스를 해석하지 못하면 notifee가 throw하며 알림이 아예
+    // 표시되지 않는다. 아이콘 모양보다 알림 전달이 우선이므로 기본 아이콘으로
+    // 재시도한다(이 경우 상태바 아이콘은 ic_launcher 폴백).
+    console.warn('[fcm] 알림 아이콘 적용 실패, 기본 아이콘으로 재시도:', e);
+    await notifee.displayNotification(base);
+  }
 };
 
 /**
