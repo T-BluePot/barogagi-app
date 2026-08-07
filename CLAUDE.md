@@ -96,7 +96,9 @@ inset 변경 시(회전) + `onLoadEnd`에서 재주입.
 
 ## 네이밍 컨벤션
 
-- 파일명: PascalCase (WebViewScreen.tsx)
+- 파일명
+  - 화면·컴포넌트: PascalCase (`WebViewScreen.tsx`, `ErrorFallback.tsx`)
+  - 그 외 모듈(상수·서비스·유틸): camelCase (`config.ts`, `fcm.ts`, `bridgeStorage.ts`)
 - 변수명: camelCase
 - 상수명: UPPER_SNAKE_CASE
 

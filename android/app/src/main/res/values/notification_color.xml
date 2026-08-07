@@ -1,0 +1,7 @@
+<resources>
+  <!--
+    알림 트레이에서 상태바 아이콘에 입혀지는 강조색 (브랜드 코랄).
+    colors.xml은 react-native-bootsplash generate가 덮어쓰므로 별도 파일로 분리.
+  -->
+  <color name="notification_color">#ff8a65</color>
+</resources>

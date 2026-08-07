@@ -37,6 +37,110 @@ import {
 } from '../services/bridgeStorage';
 import { getDeviceType, getFcmToken, initFcm } from '../services/fcm';
 
+/**
+ * intent URI에서 뽑은 scheme으로 다른 앱을 실행하므로 위험한 스킴은 배제한다.
+ *
+ * 카카오만 화이트리스트하지 않는 이유: 웹이 지도·결제 등 다른 앱 연동을 추가할
+ * 때마다 앱 재배포가 필요해진다. 대신 앱 실행이 아닌 코드 실행/로컬 자원 접근에
+ * 쓰이는 스킴만 막는다.
+ */
+const BLOCKED_SCHEMES = new Set([
+  'javascript',
+  'data',
+  'file',
+  'content',
+  'intent',
+]);
+
+/** RFC 3986 scheme 문법. */
+const SCHEME_PATTERN = /^[a-zA-Z][a-zA-Z0-9+.-]*$/;
+
+/** Android 패키지명 문법(점으로 구분된 2개 이상 세그먼트). */
+const PACKAGE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+$/;
+
+const isSafeScheme = (scheme: string): boolean =>
+  SCHEME_PATTERN.test(scheme) && !BLOCKED_SCHEMES.has(scheme.toLowerCase());
+
+/**
+ * browser_fallback_url은 http(s)만 허용한다.
+ * 디코딩 결과가 javascript:/file: 등이면 열지 않는다.
+ */
+const toHttpFallback = (encoded: string): string | null => {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+  try {
+    const { protocol } = new URL(decoded);
+    return protocol === 'http:' || protocol === 'https:' ? decoded : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Android intent:// 스킴을 처리한다.
+ *
+ * RN Android의 LinkingModule은 내부적으로 `new Intent(ACTION_VIEW, Uri.parse(url))`를
+ * 쓰는데, intent://는 `Intent.parseUri(url, URI_INTENT_SCHEME)`로 파싱해야 하는
+ * 형식이라 Uri.parse로는 처리할 액티비티가 없어 실패한다.
+ * 카카오 JS SDK가 Android에서 공유 시 이 스킴으로 이동하므로 별도 분기가 필요하다.
+ *
+ * intent://<body>#Intent;scheme=<s>;package=<p>;S.browser_fallback_url=<url>;end;
+ * → scheme을 뽑아 `<s>://<body>` 평문 스킴으로 되돌려 연다.
+ *
+ * 실패 시 fallback URL → 스토어 순으로 내려간다.
+ */
+const openIntentUrl = async (url: string): Promise<void> => {
+  const body = url.slice('intent://'.length).split('#Intent')[0];
+  const scheme = url.match(/;scheme=([^;]+)/)?.[1];
+  const fallback = url.match(/;S\.browser_fallback_url=([^;]+)/)?.[1];
+  const pkg = url.match(/;package=([^;]+)/)?.[1];
+
+  if (scheme && isSafeScheme(scheme)) {
+    try {
+      await Linking.openURL(`${scheme}://${body}`);
+      return;
+    } catch (e) {
+      // 대상 앱(카카오톡 등) 미설치로 추정. 아래 폴백으로 계속 진행.
+      console.warn('[nav] 평문 스킴 실패:', scheme, e);
+    }
+  } else if (scheme) {
+    console.warn('[nav] 허용되지 않은 스킴 차단:', scheme);
+  }
+
+  if (fallback) {
+    const target = toHttpFallback(fallback);
+    if (target) {
+      try {
+        await Linking.openURL(target);
+        return;
+      } catch (e) {
+        console.warn('[nav] fallback URL 실패:', e);
+      }
+    } else {
+      console.warn('[nav] http(s)가 아닌 fallback 차단');
+    }
+  }
+
+  if (pkg) {
+    if (PACKAGE_PATTERN.test(pkg)) {
+      try {
+        await Linking.openURL(`market://details?id=${pkg}`);
+        return;
+      } catch (e) {
+        console.warn('[nav] 스토어 유도 실패:', e);
+      }
+    } else {
+      console.warn('[nav] 패키지명 형식 불일치로 스토어 유도 생략');
+    }
+  }
+
+  console.warn('[nav] intent 처리 전부 실패:', url);
+};
+
 const WebViewScreen = () => {
   /** WebView 인스턴스 참조 — injectJavaScript()/reload() 등 직접 제어에 사용 */
   const webViewRef = useRef<WebView>(null);
@@ -263,6 +367,17 @@ const WebViewScreen = () => {
    */
   const shouldAllowNavigation = useCallback((req: { url: string }): boolean => {
     if (req.url.startsWith('about:')) return true;
+
+    // intent://는 일반 openURL이 처리하지 못하므로 호스트 판정보다 먼저 분기한다.
+    // (intent://send?... 는 new URL()에서 hostname이 'send'로 잡혀 그냥 두면
+    //  외부 호스트로 오인돼 openURL로 넘어가고, 거기서 조용히 실패한다.)
+    if (req.url.startsWith('intent://')) {
+      openIntentUrl(req.url).catch(e =>
+        console.warn('[nav] intent 처리 실패:', req.url, e),
+      );
+      return false;
+    }
+
     try {
       const host = new URL(req.url).hostname;
       // 정확 매치 또는 서브도메인(www.fitpl.xyz 등) 허용. 앞 점(.)으로
@@ -271,7 +386,11 @@ const WebViewScreen = () => {
     } catch {
       return false;
     }
-    Linking.openURL(req.url);
+
+    // 실패를 삼키면 원인 추적이 불가능해진다(카카오 공유 무반응 건). 반드시 로깅.
+    Linking.openURL(req.url).catch(e =>
+      console.warn('[nav] openURL 실패:', req.url, e),
+    );
     return false;
   }, []);
 
@@ -311,8 +430,14 @@ const WebViewScreen = () => {
         scalesPageToFit={false}
         // User-Agent에 'BarogagiApp'을 추가해 웹앱이 앱 환경임을 인식할 수 있게 합니다
         applicationNameForUserAgent={APP_NAME}
-        // https, http URL만 허용 (javascript:, data: 등의 스킴 차단)
-        originWhitelist={['https://*', 'http://*']}
+        /**
+         * 여기에 없는 스킴은 react-native-webview 내부에서 canOpenURL/openURL로
+         * 처리되고 onShouldStartLoadWithRequest가 호출되지 않는다(WebViewShared).
+         * intent://는 canOpenURL이 false를 반환해 조용히 버려지므로, 우리
+         * shouldAllowNavigation이 직접 처리하도록 화이트리스트에 포함시킨다.
+         * 실제 로딩 허용 여부는 shouldAllowNavigation에서 호스트로 판정한다.
+         */
+        originWhitelist={['https://*', 'http://*', 'intent://*']}
         // 페이지 캐시 활성화 — 재방문 시 로딩 속도 향상
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"

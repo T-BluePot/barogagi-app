@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
   <uses-permission android:name="android.permission.CAMERA" />
@@ -14,6 +15,22 @@
     android:theme="@style/AppTheme"
     android:usesCleartextTraffic="${usesCleartextTraffic}"
     android:supportsRtl="true">
+    <!--
+      FCM이 notification 페이로드를 시스템에 직접 표시할 때 쓰는 상태바 아이콘.
+      상태바는 알파 채널만 읽어 단색 실루엣으로 칠하므로 ic_launcher(불투명 흰
+      타일)를 쓰면 흰 사각형만 보인다. 투명 배경 흰 실루엣 전용 리소스를 지정.
+    -->
+    <meta-data
+      android:name="com.google.firebase.messaging.default_notification_icon"
+      android:resource="@drawable/ic_notification" />
+    <!--
+      react-native-firebase_messaging가 이 키를 @color/white로 이미 선언하므로
+      tools:replace로 우선권을 명시해야 매니페스트 병합이 통과한다.
+    -->
+    <meta-data
+      android:name="com.google.firebase.messaging.default_notification_color"
+      android:resource="@color/notification_color"
+      tools:replace="android:resource" />
     <activity
       android:name=".MainActivity"
       android:label="@string/app_name"

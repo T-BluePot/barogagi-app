@@ -32,4 +32,4 @@ export const APP_HOST = new URL(WEB_APP_URL).hostname;
 export const OAUTH_CALLBACK = 'barogagiapp://oauth/callback';
 
 export const APP_NAME = 'fitpl';
-export const APP_VERSION = '1.2.1';
+export const APP_VERSION = '2.0.0';
