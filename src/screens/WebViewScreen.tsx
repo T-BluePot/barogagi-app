@@ -38,6 +38,49 @@ import {
 import { getDeviceType, getFcmToken, initFcm } from '../services/fcm';
 
 /**
+ * intent URI에서 뽑은 scheme으로 다른 앱을 실행하므로 위험한 스킴은 배제한다.
+ *
+ * 카카오만 화이트리스트하지 않는 이유: 웹이 지도·결제 등 다른 앱 연동을 추가할
+ * 때마다 앱 재배포가 필요해진다. 대신 앱 실행이 아닌 코드 실행/로컬 자원 접근에
+ * 쓰이는 스킴만 막는다.
+ */
+const BLOCKED_SCHEMES = new Set([
+  'javascript',
+  'data',
+  'file',
+  'content',
+  'intent',
+]);
+
+/** RFC 3986 scheme 문법. */
+const SCHEME_PATTERN = /^[a-zA-Z][a-zA-Z0-9+.-]*$/;
+
+/** Android 패키지명 문법(점으로 구분된 2개 이상 세그먼트). */
+const PACKAGE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+$/;
+
+const isSafeScheme = (scheme: string): boolean =>
+  SCHEME_PATTERN.test(scheme) && !BLOCKED_SCHEMES.has(scheme.toLowerCase());
+
+/**
+ * browser_fallback_url은 http(s)만 허용한다.
+ * 디코딩 결과가 javascript:/file: 등이면 열지 않는다.
+ */
+const toHttpFallback = (encoded: string): string | null => {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+  try {
+    const { protocol } = new URL(decoded);
+    return protocol === 'http:' || protocol === 'https:' ? decoded : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Android intent:// 스킴을 처리한다.
  *
  * RN Android의 LinkingModule은 내부적으로 `new Intent(ACTION_VIEW, Uri.parse(url))`를
@@ -56,7 +99,7 @@ const openIntentUrl = async (url: string): Promise<void> => {
   const fallback = url.match(/;S\.browser_fallback_url=([^;]+)/)?.[1];
   const pkg = url.match(/;package=([^;]+)/)?.[1];
 
-  if (scheme) {
+  if (scheme && isSafeScheme(scheme)) {
     try {
       await Linking.openURL(`${scheme}://${body}`);
       return;
@@ -64,23 +107,34 @@ const openIntentUrl = async (url: string): Promise<void> => {
       // 대상 앱(카카오톡 등) 미설치로 추정. 아래 폴백으로 계속 진행.
       console.warn('[nav] 평문 스킴 실패:', scheme, e);
     }
+  } else if (scheme) {
+    console.warn('[nav] 허용되지 않은 스킴 차단:', scheme);
   }
 
   if (fallback) {
-    try {
-      await Linking.openURL(decodeURIComponent(fallback));
-      return;
-    } catch (e) {
-      console.warn('[nav] fallback URL 실패:', e);
+    const target = toHttpFallback(fallback);
+    if (target) {
+      try {
+        await Linking.openURL(target);
+        return;
+      } catch (e) {
+        console.warn('[nav] fallback URL 실패:', e);
+      }
+    } else {
+      console.warn('[nav] http(s)가 아닌 fallback 차단');
     }
   }
 
   if (pkg) {
-    try {
-      await Linking.openURL(`market://details?id=${pkg}`);
-      return;
-    } catch (e) {
-      console.warn('[nav] 스토어 유도 실패:', e);
+    if (PACKAGE_PATTERN.test(pkg)) {
+      try {
+        await Linking.openURL(`market://details?id=${pkg}`);
+        return;
+      } catch (e) {
+        console.warn('[nav] 스토어 유도 실패:', e);
+      }
+    } else {
+      console.warn('[nav] 패키지명 형식 불일치로 스토어 유도 생략');
     }
   }
 
