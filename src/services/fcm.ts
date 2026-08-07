@@ -135,6 +135,10 @@ export const displayNotification = async (
   await ensureAndroidChannel();
 
   const base = {
+    // 아래 아이콘 폴백 재시도가 같은 알림을 덮어쓰도록(중복 표시 방지) 고정 id를
+    // 부여한다. FCM이 같은 메시지를 재전송하는 경우의 중복도 함께 막힌다.
+    // messageId가 없으면 undefined → notifee가 임의 id를 생성(기존 동작).
+    id: message.messageId,
     title: notification?.title,
     body: notification?.body,
     data,
